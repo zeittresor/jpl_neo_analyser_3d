@@ -1,0 +1,44 @@
+# Scientific limitations
+
+This app intentionally separates three layers:
+
+1. Official source data from NASA/JPL CAD.
+2. Local readable interpretation and simple derived units.
+3. Local educational simulation and local LLM explanation.
+
+Only layer 1 is official source data. Layers 2 and 3 are convenience/interpretation layers.
+
+## Why CAD alone is not enough for real orbit prediction
+
+A CAD record contains a close-approach summary: designation, orbit ID, close-approach time, nominal distance, min/max distance range, relative velocity, v-infinity, uncertainty text, target body, H magnitude, and optional diameter/full-name fields.
+
+That is enough for readable close-approach summaries, but not enough for authoritative orbit propagation. Real propagation needs a state vector and often covariance data, observation arc metadata, dynamical model selection, non-gravitational parameters for comets or active bodies, relativistic corrections in high-precision contexts, and updated observations.
+
+## What the built-in simulation does
+
+The built-in simulation creates a synthetic target-centered flyby:
+
+- x axis: direction of relative velocity
+- y axis: CAD miss distance
+- z axis: zero at initial geometry
+- time zero: close approach
+
+It compares:
+
+- straight-line geometry
+- central-body gravity only
+- central-body gravity plus approximate solar and planetary tidal terms
+
+This is useful for intuition: scale, speed, gravitational focusing, and rough perturbation sensitivity.
+
+## What it must not be used for
+
+Do not use this app to claim:
+
+- impact probability
+- precise future coordinates
+- official risk classification
+- exact deflection due to planets
+- impact/no-impact certainty
+
+Use official CNEOS/JPL/MPC/Horizons/SPICE resources for that.
