@@ -4,7 +4,7 @@ A local-first Python/PyQt6 desktop application for querying NASA/JPL SBDB Close 
 
 Original source / updates: `github.com/zeittresor`
 
-Version: `0.1.11`
+Version: `0.1.14`
 
 ## Purpose
 
