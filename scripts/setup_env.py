@@ -62,6 +62,7 @@ def color(text: str, fg: str = "white") -> str:
         "red": "\033[91m",
         "green": "\033[92m",
         "yellow": "\033[93m",
+        "orange": "\033[38;2;255;165;0m",
         "blue": "\033[94m",
         "magenta": "\033[95m",
         "cyan": "\033[96m",
@@ -69,6 +70,97 @@ def color(text: str, fg: str = "white") -> str:
         "reset": "\033[0m",
     }
     return colors.get(fg, colors["white"]) + text + colors["reset"]
+
+
+def _windows_console_handle():
+    if os.name != "nt" or not sys.stdout.isatty() or os.environ.get("NO_COLOR"):
+        return None
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.GetStdHandle(_STD_OUTPUT_HANDLE)
+        if handle in (0, -1):
+            return None
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return None
+        return handle
+    except Exception:
+        return None
+
+
+def _windows_console_attr(handle):
+    class CONSOLE_SCREEN_BUFFER_INFO(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", ctypes.c_short * 2),
+            ("dwCursorPosition", ctypes.c_short * 2),
+            ("wAttributes", ctypes.c_ushort),
+            ("srWindow", ctypes.c_short * 4),
+            ("dwMaximumWindowSize", ctypes.c_short * 2),
+        ]
+    try:
+        info = CONSOLE_SCREEN_BUFFER_INFO()
+        if ctypes.windll.kernel32.GetConsoleScreenBufferInfo(handle, ctypes.byref(info)):  # type: ignore[attr-defined]
+            return int(info.wAttributes)
+    except Exception:
+        pass
+    return 0x07
+
+
+def _windows_fg_attr(fg: str) -> int:
+    # Legacy Windows console has no true orange. 0x06 is the closest readable
+    # orange/brown warning color on dark backgrounds; modern VT consoles use
+    # the RGB ANSI orange defined in color().
+    return {
+        "red": 0x0C,
+        "green": 0x0A,
+        "yellow": 0x0E,
+        "orange": 0x06,
+        "blue": 0x09,
+        "magenta": 0x0D,
+        "cyan": 0x0B,
+        "white": 0x0F,
+    }.get(fg, 0x0F)
+
+
+def print_colored(text: str, fg: str = "white", *, end: str = "\n") -> None:
+    if supports_ansi():
+        print(color(text, fg), end=end)
+        return
+    handle = _windows_console_handle()
+    if handle is None:
+        print(text, end=end)
+        return
+    old_attr = _windows_console_attr(handle)
+    try:
+        ctypes.windll.kernel32.SetConsoleTextAttribute(handle, _windows_fg_attr(fg))  # type: ignore[attr-defined]
+        print(text, end=end)
+    finally:
+        try:
+            ctypes.windll.kernel32.SetConsoleTextAttribute(handle, old_attr)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+
+def print_status(tag: str, fg: str, message: str = "") -> None:
+    prefix = f"[{tag}] "
+    if supports_ansi():
+        print(color(prefix, fg) + message)
+        return
+    handle = _windows_console_handle()
+    if handle is None:
+        print(prefix + message)
+        return
+    old_attr = _windows_console_attr(handle)
+    try:
+        ctypes.windll.kernel32.SetConsoleTextAttribute(handle, _windows_fg_attr(fg))  # type: ignore[attr-defined]
+        sys.stdout.write(prefix)
+        sys.stdout.flush()
+    finally:
+        try:
+            ctypes.windll.kernel32.SetConsoleTextAttribute(handle, old_attr)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+    print(message)
 
 
 def log_optional_failure(name: str, output: str) -> Path:
@@ -85,7 +177,7 @@ def run(
     check: bool = True,
     capture: bool = False,
 ) -> subprocess.CompletedProcess:
-    print(color("[CMD] ", "cyan") + " ".join(str(part) for part in cmd))
+    print_status("CMD", "cyan", " ".join(str(part) for part in cmd))
     if capture:
         result = subprocess.run(
             cmd,
@@ -146,7 +238,7 @@ def best_depot_path() -> Path:
 
 def prompt_depot(non_interactive: bool = False) -> Path:
     default = best_depot_path()
-    print(color("[INFO] ", "blue") + f"Suggested shared Python depot/cache path: {default}")
+    print_status("INFO", "blue", f"Suggested shared Python depot/cache path: {default}")
     if non_interactive:
         depot = default
     else:
@@ -181,16 +273,16 @@ def build_env(depot: Path) -> dict[str, str]:
 
 def ensure_venv() -> None:
     if venv_python().exists():
-        print(color("[OK] ", "green") + f"Using existing venv: {VENV}")
+        print_status("OK", "green", f"Using existing venv: {VENV}")
         return
-    print(color("[STEP] ", "magenta") + f"Creating project-local venv: {VENV}")
+    print_status("STEP", "magenta", f"Creating project-local venv: {VENV}")
     run([sys.executable, "-m", "venv", str(VENV)])
 
 
 def sanity_check_python(py: str, env: dict[str, str]) -> bool:
     result = run([py, "-c", "import sys, encodings; print(sys.executable); print(sys.prefix)"], env=env, check=False)
     if result.returncode != 0:
-        print(color("[WARN] ", "yellow") + "The venv Python interpreter failed a sanity check.")
+        print_status("WARN", "orange", "The venv Python interpreter failed a sanity check.")
         return False
     return True
 
@@ -214,10 +306,10 @@ def check_uv(uv_path: Path, env: dict[str, str]) -> bool:
     result = run([str(uv_path), "--version"], env=env, check=False, capture=True)
     if result.returncode == 0:
         version = (result.stdout or "").strip()
-        print(color("[OK] ", "green") + f"Managed uv available: {uv_path}" + (f" ({version})" if version else ""))
+        print_status("OK", "green", f"Managed uv available: {uv_path}" + (f" ({version})" if version else ""))
         return True
     log_file = log_optional_failure("managed_uv_version_failed.log", result.stdout or "uv --version failed")
-    print(color("[WARN] ", "yellow") + f"Managed uv exists but did not run; details written to {log_file}")
+    print_status("WARN", "orange", f"Managed uv exists but did not run; details written to {log_file}")
     return False
 
 
@@ -228,7 +320,7 @@ def install_managed_uv(depot: Path, env: dict[str, str], *, offline: bool = Fals
     prevent the app from installing, because normal venv pip is the safe path.
     """
     if os.environ.get("JPL_CAD_SKIP_MANAGED_UV", "").lower() in {"1", "true", "yes", "on"}:
-        print(color("[INFO] ", "blue") + "JPL_CAD_SKIP_MANAGED_UV is set; not preparing depot-managed uv.")
+        print_status("INFO", "blue", "JPL_CAD_SKIP_MANAGED_UV is set; not preparing depot-managed uv.")
         return None
 
     uv_path = managed_uv_exe(depot)
@@ -237,7 +329,7 @@ def install_managed_uv(depot: Path, env: dict[str, str], *, offline: bool = Fals
 
     uv_py = managed_uv_python(depot)
     uv_home = managed_uv_dir(depot)
-    print(color("[STEP] ", "magenta") + f"Preparing depot-managed uv: {uv_home}")
+    print_status("STEP", "magenta", f"Preparing depot-managed uv: {uv_home}")
 
     try:
         if not uv_py.exists():
@@ -245,24 +337,24 @@ def install_managed_uv(depot: Path, env: dict[str, str], *, offline: bool = Fals
         result = pip_install(str(uv_py), ["install", "--upgrade", "pip", "setuptools", "wheel"], env, check=False, capture=True)
         if result.returncode != 0:
             log_file = log_optional_failure("managed_uv_bootstrap_failed.log", result.stdout or "managed uv bootstrap failed")
-            print(color("[WARN] ", "yellow") + f"Could not bootstrap managed uv venv; details written to {log_file}")
+            print_status("WARN", "orange", f"Could not bootstrap managed uv venv; details written to {log_file}")
             return None
 
         uv_args = ["install", "--upgrade"]
         if offline:
             if not WHEELHOUSE.exists():
-                print(color("[WARN] ", "yellow") + "Offline mode and no wheelhouse/ exists; cannot prepare managed uv offline.")
+                print_status("WARN", "orange", "Offline mode and no wheelhouse/ exists; cannot prepare managed uv offline.")
                 return None
             uv_args.extend(["--no-index", "--find-links", str(WHEELHOUSE)])
         uv_args.append("uv")
         result = pip_install(str(uv_py), uv_args, env, check=False, capture=True)
         if result.returncode != 0:
             log_file = log_optional_failure("managed_uv_install_failed.log", result.stdout or "managed uv install failed")
-            print(color("[WARN] ", "yellow") + f"Could not install managed uv; details written to {log_file}")
+            print_status("WARN", "orange", f"Could not install managed uv; details written to {log_file}")
             return None
     except Exception as exc:
         log_file = log_optional_failure("managed_uv_exception.log", repr(exc))
-        print(color("[WARN] ", "yellow") + f"Could not prepare managed uv; details written to {log_file}")
+        print_status("WARN", "orange", f"Could not prepare managed uv; details written to {log_file}")
         return None
 
     if check_uv(uv_path, env):
@@ -275,7 +367,7 @@ def choose_uv(depot: Path, env: dict[str, str], *, offline: bool = False) -> str
     # depot-managed install and still permits an already global uv.
     uv_disabled = os.environ.get("JPL_CAD_NO_UV", "").lower() in {"1", "true", "yes", "on"}
     if uv_disabled:
-        print(color("[INFO] ", "blue") + "JPL_CAD_NO_UV is set; using pip fallback.")
+        print_status("INFO", "blue", "JPL_CAD_NO_UV is set; using pip fallback.")
         return None
 
     managed = install_managed_uv(depot, env, offline=offline)
@@ -284,17 +376,17 @@ def choose_uv(depot: Path, env: dict[str, str], *, offline: bool = False) -> str
 
     global_uv = shutil.which("uv")
     if global_uv:
-        print(color("[INFO] ", "blue") + f"Using global uv fallback if it works: {global_uv}")
+        print_status("INFO", "blue", f"Using global uv fallback if it works: {global_uv}")
         return global_uv
 
-    print(color("[WARN] ", "yellow") + "uv not available; using pip fallback.")
+    print_status("WARN", "orange", "uv not available; using pip fallback.")
     return None
 
 
 def install_requirements(depot: Path, env: dict[str, str], offline: bool = False) -> None:
     py = str(venv_python())
     if not sanity_check_python(py, env):
-        print(color("[STEP] ", "magenta") + "Recreating broken venv.")
+        print_status("STEP", "magenta", "Recreating broken venv.")
         if VENV.exists():
             shutil.rmtree(VENV)
         ensure_venv()
@@ -317,15 +409,15 @@ def install_requirements(depot: Path, env: dict[str, str], offline: bool = False
     # A global uv is only a fallback, and any failure returns to venv pip.
     uv = choose_uv(depot, env, offline=False)
     if uv:
-        print(color("[INFO] ", "blue") + f"Trying uv accelerator: {uv}")
+        print_status("INFO", "blue", f"Trying uv accelerator: {uv}")
         result = run([uv, "--no-progress", "--color", "never", "pip", "install", "--python", py, "-r", str(REQ)], env=env, check=False, capture=True)
         if result.returncode == 0:
             if result.stdout:
                 print(result.stdout.rstrip())
             return
         log_file = log_optional_failure("uv_install_failed.log", result.stdout or "uv failed without output")
-        print(color("[WARN] ", "yellow") + f"uv install failed; details written to {log_file}")
-        print(color("[WARN] ", "yellow") + "Retrying with venv pip fallback.")
+        print_status("WARN", "orange", f"uv install failed; details written to {log_file}")
+        print_status("WARN", "orange", "Retrying with venv pip fallback.")
 
     if WHEELHOUSE.exists():
         pip_install(py, ["install", "--find-links", str(WHEELHOUSE), "-r", str(REQ)], env)
@@ -347,9 +439,9 @@ def main() -> int:
     parser.add_argument("mode", choices=["install", "offline", "wheelhouse"], default="install")
     parser.add_argument("--non-interactive", action="store_true")
     args = parser.parse_args()
-    print(color("=" * 72, "cyan"))
-    print(color("JPL CAD Ollama Explorer setup", "cyan"))
-    print(color("=" * 72, "cyan"))
+    print_colored("=" * 72, "cyan")
+    print_colored("JPL CAD Ollama Explorer setup", "cyan")
+    print_colored("=" * 72, "cyan")
     depot = prompt_depot(args.non_interactive)
     env = build_env(depot)
     ensure_venv()
@@ -358,7 +450,7 @@ def main() -> int:
         build_wheelhouse(env)
     else:
         install_requirements(depot, env, offline=args.mode == "offline")
-    print(color("[OK] Setup complete.", "green"))
+    print_status("OK", "green", "Setup complete.")
     return 0
 
 

@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSlider,
     QSpinBox,
     QSplitter,
     QTableWidget,
@@ -179,7 +180,10 @@ class MainWindow(QMainWindow):
         self.ollama_started_at = 0.0
         self.ollama_busy_base_message = ""
         self.analysis_markdown = ""
+        self.last_assistant_response_text = ""
         self.chat_turns: list[tuple[str, str]] = []
+        self._syncing_context_control = False
+        self.context_token_values = [4096, 8192, 16384, 32768, 65536, 131072, 262144]
         self.tts_process: subprocess.Popen | None = None
         self.tts_temp_file: Path | None = None
         self.tts_poll_timer = QTimer(self)
@@ -392,9 +396,27 @@ class MainWindow(QMainWindow):
         model_wrap = QWidget()
         model_wrap.setLayout(model_row)
         self.num_ctx_spin = QSpinBox()
-        self.num_ctx_spin.setRange(2048, 262144)
-        self.num_ctx_spin.setValue(8192)
-        self.num_ctx_spin.setSingleStep(2048)
+        self.num_ctx_spin.setRange(4096, 262144)
+        self.num_ctx_spin.setValue(32768)
+        self.num_ctx_spin.setSingleStep(4096)
+        self.context_slider = QSlider(Qt.Orientation.Horizontal)
+        self.context_slider.setRange(0, len(self.context_token_values) - 1)
+        self.context_slider.setTickInterval(1)
+        self.context_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.context_slider.setValue(self.context_token_values.index(32768))
+        context_wrap = QWidget()
+        context_layout = QVBoxLayout(context_wrap)
+        context_layout.setContentsMargins(0, 0, 0, 0)
+        context_layout.setSpacing(3)
+        context_layout.addWidget(self.num_ctx_spin)
+        context_layout.addWidget(self.context_slider)
+        context_labels = QHBoxLayout()
+        context_labels.setContentsMargins(0, 0, 0, 0)
+        for label in ["4k", "8k", "16k", "32k", "64k", "128k", "256k"]:
+            tick_label = QLabel(label)
+            tick_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            context_labels.addWidget(tick_label)
+        context_layout.addLayout(context_labels)
         self.temperature_spin = QDoubleSpinBox()
         self.temperature_spin.setRange(0.0, 1.5)
         self.temperature_spin.setValue(0.2)
@@ -406,7 +428,7 @@ class MainWindow(QMainWindow):
         self.ollama_timeout_spin.setSuffix(" s")
         form.addRow(self._label("label_ollama_url", "Ollama URL"), self.ollama_url_edit)
         form.addRow(self._label("label_model", "Model"), model_wrap)
-        form.addRow(self._label("label_context_tokens", "Context tokens"), self.num_ctx_spin)
+        form.addRow(self._label("label_context_tokens", "Context length"), context_wrap)
         form.addRow(self._label("label_temperature", "Temperature"), self.temperature_spin)
         form.addRow(self._label("label_ollama_timeout", "Ollama timeout"), self.ollama_timeout_spin)
         layout.addWidget(box)
@@ -523,9 +545,13 @@ class MainWindow(QMainWindow):
         out_row.addWidget(self.output_browse_btn)
         out_wrap = QWidget()
         out_wrap.setLayout(out_row)
+        self.tts_scope_combo = QComboBox()
+        self.tts_scope_combo.addItem("Last answer only", "last")
+        self.tts_scope_combo.addItem("Entire visible analysis", "all")
         form.addRow(self._label("label_language", "Language"), self.language_combo)
         form.addRow(self._label("label_theme", "Theme"), self.theme_combo)
         form.addRow(self._label("label_visualization_output", "Visualization output"), out_wrap)
+        form.addRow(self._label("label_tts_scope", "Read aloud scope"), self.tts_scope_combo)
         layout.addWidget(box)
         self.save_options_btn = QPushButton("Save options")
         layout.addWidget(self.save_options_btn)
@@ -545,6 +571,8 @@ class MainWindow(QMainWindow):
         self.preset_apophis_btn.clicked.connect(self.preset_apophis)
         self.table.itemSelectionChanged.connect(self.update_detail_from_selection)
         self.list_models_btn.clicked.connect(self.list_ollama_models)
+        self.context_slider.valueChanged.connect(self._context_slider_changed)
+        self.num_ctx_spin.valueChanged.connect(self._context_spin_changed)
         self.analyze_selected_btn.clicked.connect(self.analyze_selected)
         self.local_summary_btn.clicked.connect(self.local_summary)
         self.cancel_ollama_btn.clicked.connect(self.cancel_ollama_display)
@@ -595,6 +623,8 @@ class MainWindow(QMainWindow):
         self.copy_analysis_btn.setText(t("copy_analysis_text"))
         self.read_analysis_btn.setText(t("read_analysis_aloud"))
         self.stop_tts_btn.setText(t("stop_tts"))
+        self._set_combo_item_text_by_data(self.tts_scope_combo, "last", t("tts_scope_last"))
+        self._set_combo_item_text_by_data(self.tts_scope_combo, "all", t("tts_scope_all"))
 
         self._apply_tooltips()
 
@@ -654,9 +684,39 @@ class MainWindow(QMainWindow):
             self.save_options_btn: "tip_save_options",
             self.language_combo: "tip_language",
             self.theme_combo: "tip_theme",
+            self.tts_scope_combo: "tip_tts_scope",
+            self.context_slider: "tip_context_length",
+            self.num_ctx_spin: "tip_context_length",
         }
         for widget, key in tooltip_map.items():
             widget.setToolTip(t(key))
+
+    def _set_combo_item_text_by_data(self, combo: QComboBox, data: str, text: str) -> None:
+        idx = combo.findData(data)
+        if idx >= 0:
+            combo.setItemText(idx, text)
+
+    def _nearest_context_index(self, value: int) -> int:
+        return min(range(len(self.context_token_values)), key=lambda idx: abs(self.context_token_values[idx] - int(value)))
+
+    def _context_slider_changed(self, index: int) -> None:
+        if self._syncing_context_control:
+            return
+        self._syncing_context_control = True
+        try:
+            value = self.context_token_values[max(0, min(index, len(self.context_token_values) - 1))]
+            self.num_ctx_spin.setValue(value)
+        finally:
+            self._syncing_context_control = False
+
+    def _context_spin_changed(self, value: int) -> None:
+        if self._syncing_context_control:
+            return
+        self._syncing_context_control = True
+        try:
+            self.context_slider.setValue(self._nearest_context_index(value))
+        finally:
+            self._syncing_context_control = False
 
     def _inline_markdown_to_html(self, text: str) -> str:
         escaped = html.escape(text)
@@ -779,8 +839,43 @@ class MainWindow(QMainWindow):
             "ru": "ru-RU",
         }.get(lang, "en-US")
 
+    def _text_for_speech(self, text: str) -> str:
+        """Return speech-friendly plain text from Markdown-ish GUI content.
+
+        The analysis pane intentionally renders Markdown markers such as
+        headings (###), emphasis (**text**) and bullets (* item) visually.
+        Windows TTS should not read those formatting tokens aloud, so this
+        function strips the common Markdown/control markers while preserving
+        the actual scientific content.
+        """
+        cleaned = text.replace("\r\n", "\n").replace("\r", "\n")
+        cleaned = cleaned.replace("➜", "-").replace("→", "-").replace("•", "-")
+        cleaned = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", cleaned)
+        cleaned = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", cleaned)
+        cleaned = re.sub(r"</?(?:strong|em|b|i|code|p|span|div|h[1-6]|pre|br|hr)[^>]*>", " ", cleaned, flags=re.IGNORECASE)
+        cleaned = html.unescape(cleaned)
+        cleaned = re.sub(r"^\s*```.*$", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"`([^`]+)`", r"\1", cleaned)
+        cleaned = re.sub(r"^\s{0,3}#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"^\s{0,3}>\s?", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"^\s*[-*_]{3,}\s*$", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"^\s*[*+-]\s+", "- ", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned)
+        cleaned = re.sub(r"__(.*?)__", r"\1", cleaned)
+        cleaned = re.sub(r"(?<!\*)\*(?!\s)(.*?)(?<!\s)\*(?!\*)", r"\1", cleaned)
+        cleaned = re.sub(r"(?<!_)_(?!\s)(.*?)(?<!\s)_(?!_)", r"\1", cleaned)
+        cleaned = re.sub(r"[ \t]+", " ", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
+
+    def _text_for_tts(self) -> str:
+        scope = str(self.tts_scope_combo.currentData() or "last")
+        if scope == "last" and self.last_assistant_response_text.strip():
+            return self._text_for_speech(self.last_assistant_response_text)
+        return self._text_for_speech(self.analysis_text.toPlainText())
+
     def read_analysis_aloud(self) -> None:
-        text = self.analysis_text.toPlainText().strip()
+        text = self._text_for_tts()
         if not text:
             QMessageBox.information(self, self.translator.t("tts_no_text_title"), self.translator.t("tts_no_text"))
             return
@@ -879,9 +974,22 @@ class MainWindow(QMainWindow):
             if model:
                 self.ollama_model_combo.setCurrentText(model)
             try:
+                self.num_ctx_spin.setValue(int(data.get("ollama_num_ctx", self.num_ctx_spin.value())))
+                self.context_slider.setValue(self._nearest_context_index(int(self.num_ctx_spin.value())))
+            except Exception:
+                pass
+            try:
+                self.temperature_spin.setValue(float(data.get("ollama_temperature", self.temperature_spin.value())))
+            except Exception:
+                pass
+            try:
                 self.ollama_timeout_spin.setValue(int(data.get("ollama_timeout_seconds", self.ollama_timeout_spin.value())))
             except Exception:
                 pass
+            tts_scope = data.get("tts_scope", "last")
+            tidx = self.tts_scope_combo.findData(tts_scope)
+            if tidx >= 0:
+                self.tts_scope_combo.setCurrentIndex(tidx)
             self.output_path_edit.setText(data.get("output_dir", self.output_path_edit.text()))
             self.output_dir = Path(self.output_path_edit.text())
             theme_id = data.get("theme", "dark")
@@ -902,7 +1010,10 @@ class MainWindow(QMainWindow):
         data = {
             "ollama_url": self.ollama_url_edit.text().strip(),
             "ollama_model": self.ollama_model_combo.currentText().strip(),
+            "ollama_num_ctx": int(self.num_ctx_spin.value()),
+            "ollama_temperature": float(self.temperature_spin.value()),
             "ollama_timeout_seconds": int(self.ollama_timeout_spin.value()),
+            "tts_scope": self.tts_scope_combo.currentData(),
             "theme": self.theme_combo.currentData(),
             "language": self.language_combo.currentData(),
             "output_dir": str(self.output_dir),
@@ -1141,6 +1252,7 @@ class MainWindow(QMainWindow):
         prompt = build_ollama_prompt(record, response_language=self._current_response_language_name())
         model = self.ollama_model_combo.currentText().strip()
         timeout_seconds = int(self.ollama_timeout_spin.value())
+        self.last_assistant_response_text = ""
         self._set_analysis_markdown(
             f"### {self.translator.t('ollama_sending')}\n\n"
             f"**Model:** {model}\n\n"
@@ -1172,7 +1284,9 @@ class MainWindow(QMainWindow):
     def _ollama_done(self, request_id: int, text: str) -> None:
         if self.active_ollama_request_id != request_id:
             return
-        self._set_analysis_markdown(text or self.translator.t("ollama_empty_response"), clear_chat=True)
+        response_text = text or self.translator.t("ollama_empty_response")
+        self.last_assistant_response_text = response_text
+        self._set_analysis_markdown(response_text, clear_chat=True)
         self._set_status(self.translator.t("status_ollama_complete"))
 
     def _ollama_failed(self, request_id: int, message: str) -> None:
@@ -1205,7 +1319,9 @@ class MainWindow(QMainWindow):
         if self.active_ollama_request_id is not None:
             self.cancel_ollama_display()
         self.tabs.setCurrentWidget(self.analysis_tab)
-        self._set_analysis_markdown(fallback_analysis(record, language=str(self.language_combo.currentData() or self.translator.language)), clear_chat=True)
+        summary = fallback_analysis(record, language=str(self.language_combo.currentData() or self.translator.language))
+        self.last_assistant_response_text = summary
+        self._set_analysis_markdown(summary, clear_chat=True)
 
 
     def ask_ollama_followup(self) -> None:
@@ -1266,7 +1382,9 @@ class MainWindow(QMainWindow):
     def _ollama_followup_done(self, request_id: int, question: str, text: str) -> None:
         if self.active_ollama_request_id != request_id:
             return
-        self._append_chat_turn(question, text or self.translator.t("ollama_empty_response"))
+        response_text = text or self.translator.t("ollama_empty_response")
+        self.last_assistant_response_text = response_text
+        self._append_chat_turn(question, response_text)
         self._set_status(self.translator.t("status_ollama_complete"))
     def create_visualization(self, open_after: bool) -> None:
         record = self.selected_record()

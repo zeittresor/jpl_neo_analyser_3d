@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.14 - 2026-06-21
+
+- TTS: Read aloud now strips Markdown-style formatting markers before sending text to Windows text-to-speech.
+- TTS: Headings, emphasis markers, bullet symbols, code fences, inline-code backticks, and Markdown links are converted to speech-friendly plain text.
+- TTS: The visual formatted analysis pane is unchanged; only spoken text is cleaned.
+
+## 0.1.13 - 2026-06-21
+
+- Installer: Added a WinAPI console-color fallback for Python setup output when ANSI/Virtual Terminal colors are unavailable.
+- Installer: Warning status prefixes now use orange (`[WARN]`) where supported, or the closest legacy Windows console warning color on classic cmd hosts.
+- Installer: Kept output free of raw ANSI escape sequences while improving visual separation of warnings from normal information and command lines.
+
+## 0.1.12 - 2026-06-21
+
+- Ollama: Renamed the model button to Refresh model list and updated localized tooltips.
+- Ollama: Changed the default context length from 8k to 32k and added an Ollama-style 4k/8k/16k/32k/64k/128k/256k slider while keeping numeric editing.
+- TTS: Added an Options setting for Read aloud scope, defaulting to the latest assistant/local answer instead of reading the entire visible analysis/chat.
+- TTS: Follow-up answers now update the latest readable response so Read aloud speaks the newest answer by default.
+- Settings: Persist context length, temperature, timeout, and Read aloud scope in config.json.
+
 ## 0.1.11 - 2026-06-21
 
 - Documentation: Replaced the outdated README with a publication-oriented current README for version 0.1.11.

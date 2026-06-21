@@ -31,9 +31,9 @@
   "preset_apophis_2029": "Preset: Apophis 2029",
   "label_ollama_url": "Ollama-URL",
   "label_model": "Modell",
-  "label_context_tokens": "Kontext-Tokens",
+  "label_context_tokens": "Kontextlänge",
   "label_temperature": "Temperatur",
-  "list_models": "Modelle auflisten",
+  "list_models": "Modellliste aktualisieren",
   "analyze_selected": "Ausgewählten Datensatz mit Ollama analysieren",
   "local_summary": "Lokale heuristische Zusammenfassung",
   "label_days_before": "Tage vor Annäherung",
@@ -133,7 +133,7 @@
   "tip_comets_only": "Zeigt bei breiten Suchen nur Kometen-Einträge.",
   "tip_include_diameter": "Fordert Durchmesser-Schätzungen an, soweit die API sie liefern kann.",
   "tip_include_fullname": "Fordert den vollständigen Objektnamen an, sofern verfügbar.",
-  "tip_list_models": "Fragt den lokalen Ollama-Server nach installierten Modellnamen.",
+  "tip_list_models": "Aktualisiert die Modellauswahl vom lokalen Ollama-Server.",
   "tip_analyze_selected": "Sendet die ausgewählte CAD-Zeile an dein lokales Ollama-Modell für eine vorsichtige Texteinschätzung.",
   "tip_local_summary": "Erzeugt eine schnelle lokale regelbasierte Zusammenfassung ohne Ollama-Anfrage.",
   "tip_cancel_ollama": "Ignoriert ein laufendes Ollama-Ergebnis, wenn du eine lokale Zusammenfassung startest oder die Antwort nicht mehr brauchst.",
@@ -160,5 +160,10 @@
   "status_tts_finished": "Sprachausgabe beendet.",
   "status_tts_stopped": "Sprachausgabe gestoppt.",
   "tip_read_analysis": "Liest die sichtbare Analyse mit Windows-Sprachausgabe vor.",
-  "tip_stop_tts": "Stoppt die laufende Windows-Sprachausgabe."
+  "tip_stop_tts": "Stoppt die laufende Windows-Sprachausgabe.",
+  "label_tts_scope": "Vorlesen-Umfang",
+  "tts_scope_last": "Nur letzte Antwort",
+  "tts_scope_all": "Gesamte sichtbare Analyse",
+  "tip_tts_scope": "Legt fest, ob Vorlesen nur die letzte Ollama-/lokale Antwort oder die gesamte sichtbare Analyse samt Chat liest.",
+  "tip_context_length": "Kontextlänge, die an Ollama übergeben wird. Höhere Werte behalten mehr Analyse-/Chat-Kontext, können aber mehr Speicher benötigen und langsamer sein."
 }

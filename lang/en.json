@@ -31,9 +31,9 @@
   "preset_apophis_2029": "Preset: Apophis 2029",
   "label_ollama_url": "Ollama URL",
   "label_model": "Model",
-  "label_context_tokens": "Context tokens",
+  "label_context_tokens": "Context length",
   "label_temperature": "Temperature",
-  "list_models": "List models",
+  "list_models": "Refresh model list",
   "analyze_selected": "Analyze selected record with Ollama",
   "local_summary": "Local heuristic summary",
   "label_days_before": "Days before CA",
@@ -133,7 +133,7 @@
   "tip_comets_only": "Show only comet entries in broad searches.",
   "tip_include_diameter": "Request diameter estimates where the API can provide them.",
   "tip_include_fullname": "Request the full object name where available.",
-  "tip_list_models": "Ask the local Ollama server for installed model names.",
+  "tip_list_models": "Refresh the model selector from the local Ollama server.",
   "tip_analyze_selected": "Send the selected CAD row to your local Ollama model for a careful textual assessment.",
   "tip_local_summary": "Create a fast local rule-based summary without contacting Ollama.",
   "tip_cancel_ollama": "Ignore a running Ollama result if you start another local summary or no longer need the answer.",
@@ -160,5 +160,10 @@
   "status_tts_finished": "Text-to-speech finished.",
   "status_tts_stopped": "Text-to-speech stopped.",
   "tip_read_analysis": "Read the visible analysis aloud using Windows text-to-speech.",
-  "tip_stop_tts": "Stop the current Windows text-to-speech playback."
+  "tip_stop_tts": "Stop the current Windows text-to-speech playback.",
+  "label_tts_scope": "Read aloud scope",
+  "tts_scope_last": "Last answer only",
+  "tts_scope_all": "Entire visible analysis",
+  "tip_tts_scope": "Choose whether Read aloud speaks only the latest Ollama/local answer or the entire visible analysis/chat.",
+  "tip_context_length": "Context length passed to Ollama. Higher values can preserve more analysis/chat context but may use more memory and run slower."
 }

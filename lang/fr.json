@@ -31,9 +31,9 @@
   "preset_apophis_2029": "Préréglage : Apophis 2029",
   "label_ollama_url": "URL Ollama",
   "label_model": "Modèle",
-  "label_context_tokens": "Tokens de contexte",
+  "label_context_tokens": "Longueur de contexte",
   "label_temperature": "Température",
-  "list_models": "Lister les modèles",
+  "list_models": "Actualiser la liste des modèles",
   "analyze_selected": "Analyser l’enregistrement sélectionné avec Ollama",
   "local_summary": "Résumé heuristique local",
   "label_days_before": "Jours avant l’approche",
@@ -133,7 +133,7 @@
   "tip_comets_only": "Affiche uniquement les entrées de comètes dans les recherches larges.",
   "tip_include_diameter": "Demande les estimations de diamètre quand l’API peut les fournir.",
   "tip_include_fullname": "Demande le nom complet de l’objet lorsqu’il est disponible.",
-  "tip_list_models": "Interroge le serveur Ollama local pour lister les modèles installés.",
+  "tip_list_models": "Actualise le sélecteur de modèles depuis le serveur Ollama local.",
   "tip_analyze_selected": "Envoie la ligne CAD sélectionnée à votre modèle Ollama local pour une évaluation textuelle prudente.",
   "tip_local_summary": "Crée un résumé local rapide basé sur des règles sans contacter Ollama.",
   "tip_cancel_ollama": "Ignore un résultat Ollama en cours si vous lancez un résumé local ou n’avez plus besoin de la réponse.",
@@ -160,5 +160,10 @@
   "status_tts_finished": "Lecture vocale terminée.",
   "status_tts_stopped": "Lecture vocale arrêtée.",
   "tip_read_analysis": "Lit l’analyse visible avec la synthèse vocale Windows.",
-  "tip_stop_tts": "Arrête la lecture vocale Windows en cours."
+  "tip_stop_tts": "Arrête la lecture vocale Windows en cours.",
+  "label_tts_scope": "Étendue de la lecture",
+  "tts_scope_last": "Dernière réponse seulement",
+  "tts_scope_all": "Toute l’analyse visible",
+  "tip_tts_scope": "Choisit si la lecture vocale lit seulement la dernière réponse Ollama/locale ou toute l’analyse visible avec le chat.",
+  "tip_context_length": "Longueur de contexte transmise à Ollama. Les valeurs plus élevées conservent plus de contexte, mais peuvent utiliser plus de mémoire et ralentir."
 }
