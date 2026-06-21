@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.11 - 2026-06-21
+
+- Documentation: Replaced the outdated README with a publication-oriented current README for version 0.1.11.
+- Documentation: Removed future-upgrade suggestions and version-note blocks from README; release history remains in `docs/CHANGELOG.md`.
+- Documentation: README now reflects the current Ollama follow-up, formatted analysis, print, TTS, tooltip, depot-managed uv, language, and theme behavior.
+
 ## 0.1.10 - 2026-06-21
 
 - Ollama: Simplified the language instruction to exactly `Answer strictly in <selected language>.` for both initial analysis and follow-up prompts.

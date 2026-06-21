@@ -1,69 +1,72 @@
 # JPL CAD Ollama Explorer
 
-A local-first Python/PyQt6 desktop GUI for NASA/JPL SBDB Close Approach Data (CAD), local Ollama explanations, and a local 3D close-approach visualization.
+A local-first Python/PyQt6 desktop application for querying NASA/JPL SBDB Close Approach Data (CAD), reviewing near-object close-approach records in a more readable form, generating optional local Ollama explanations, and opening local 3D close-approach visualizations.
 
 Original source / updates: `github.com/zeittresor`
 
-Version: `0.1.4`
+Version: `0.1.11`
 
-## What it does
+## Purpose
 
-- Queries the NASA/JPL CAD API: `https://ssd-api.jpl.nasa.gov/cad.api`
-- Presents asteroid/comet close approaches in a more readable table.
-- Converts distances into km and lunar distances.
-- Adds a local non-official triage label such as `Routine`, `Nearby`, `Close`, or `Very close`.
-- Sends the selected record to a local Ollama instance only when you press the analysis button.
-- Creates a self-contained local Plotly/WebGL HTML visualization that can be opened in the browser.
-- Runs a simplified gravitational what-if comparison:
-  - straight-line CAD geometry
-  - central-body gravity only
-  - approximate Sun and major-planet tidal perturbations
+JPL CAD Ollama Explorer is intended as an accessible desktop front end for the NASA/JPL CAD API. It helps users inspect close-approach records, convert key values into practical units, create local visualizations, and ask a locally running Ollama model for an explanatory assessment of the selected record.
 
-## Important scientific limitation
+The application is designed for educational, exploratory, and technical analysis workflows. It is not an official NASA/JPL tool and must not be used as an authoritative impact-risk predictor.
 
-The JPL CAD API provides close-approach summary records. It does not provide the full state vector, full covariance, observational arc, or complete orbit solution needed for authoritative orbit propagation or impact-risk analysis.
+## Main features
 
-The simulation in this app is therefore an educational approximation. It starts from the CAD miss distance and relative velocity and creates a synthetic target-centered flyby. Use it to understand scale, velocity, uncertainty brackets, and possible perturbation sensitivity. Do not use it as an impact-risk prediction tool.
+- Query the NASA/JPL CAD API at `https://ssd-api.jpl.nasa.gov/cad.api`.
+- Use GUI filters for date range, target body, maximum distance, object designation, sorting, object class, NEO/PHA/NEA/comet filters, relative velocity, and absolute magnitude.
+- Use built-in presets such as next-60-days Earth close approaches, nearby Earth approaches within 10 lunar distances, and Apophis 2029.
+- Display CAD records in a readable table with converted values such as kilometers and lunar distances.
+- Show local non-official triage labels such as `Routine`, `Nearby`, `Close`, or `Very close`.
+- Open a selected record in a local Plotly/WebGL HTML visualization.
+- Run a simplified local what-if simulation comparing straight-line geometry, central-body gravity, and approximate Sun/major-planet tidal terms.
+- Request a local Ollama analysis for the selected record on demand.
+- Ask follow-up questions to Ollama using the selected CAD record and previous analysis as context.
+- View Ollama responses in a formatted Markdown-like analysis pane with headings, emphasis, lists, and code blocks.
+- Copy or print the formatted analysis output.
+- Optionally read the analysis aloud using Windows text-to-speech.
+- Switch between English, German, French, and Russian UI language files.
+- Switch between bundled themes: Light, Dark, Sepia, Ocean, Matrix, Hellfire, and Purple.
+- Use localized tooltips for the main controls and actions.
+- Install into a project-local `.venv` while using a shared depot/cache path for reusable caches and optional managed tools.
 
-For authoritative analysis, verify with official JPL/CNEOS pages, JPL Horizons/SPICE kernels, Minor Planet Center data, and current observation updates.
+## Scientific limitation
+
+The JPL CAD API provides close-approach summary records. It does not provide the full state vector, full covariance, observational arc, full orbit solution, or official impact-probability analysis needed for authoritative orbit propagation.
+
+The simulation module in this application is therefore an educational approximation. It starts from CAD-style miss distance and relative velocity data and constructs a simplified target-centered flyby. This can help illustrate scale, speed, timing, uncertainty ranges, and rough perturbation sensitivity, but it is not equivalent to JPL Horizons, SPICE, Sentry, or a professional orbit-determination pipeline.
+
+For authoritative risk assessment, compare against official NASA/JPL/CNEOS resources, JPL Horizons/SPICE data, Minor Planet Center observations, and the newest published orbit updates.
 
 ## Requirements
 
-- Windows 10/11 or a compatible desktop OS
+- Windows 10/11 recommended
 - Python 3.10 or 3.11 recommended
-- Internet access for live JPL CAD queries and first-time package installation
-- Local Ollama only if you want AI explanations
+- Internet access for live CAD queries and first-time dependency installation
+- Local Ollama installation only if local AI explanations are desired
 
-Python packages:
-
-```text
-PyQt6
-requests
-numpy
-plotly
-```
+Python dependencies are listed in `requirements.txt`.
 
 ## Windows quick start
 
-1. Extract the ZIP.
-2. Run:
+Extract the ZIP or clone the repository, then run:
 
 ```bat
 install_windows.bat
 ```
 
-The installer creates a project-local `.venv`, uses a shared depot/cache location if possible, installs dependencies, and then starts the app.
+The installer creates a project-local `.venv`, asks for a shared depot/cache path, installs dependencies, and starts the application.
 
-To run later:
+To run the application later:
 
 ```bat
 run_windows.bat
 ```
 
+## Shared PythonDepot / ToolDepot behavior
 
-## Shared PythonDepot and uv
-
-When you select a depot/cache path such as `D:\PythonDepot`, the installer now uses it for more than package caches:
+When a depot path such as `D:\PythonDepot` is selected, the installer uses it for reusable caches and optional shared tools:
 
 ```text
 D:\PythonDepot\
@@ -71,13 +74,12 @@ D:\PythonDepot\
   pip_cache\
   downloads\
   logs\
-  tools\uv_venv\
+  tools\
+    uv_venv\
   wheelhouse\
 ```
 
-The installer prepares a depot-managed `uv` installation in `tools\uv_venv\` when possible and uses `UV_CACHE_DIR` / `PIP_CACHE_DIR` inside the selected depot. This makes `uv` reusable for this project without relying on a random global `uv` from another Python installation.
-
-`uv` is still optional. If it fails, setup writes a log under `install_logs/` and falls back to `.venv\Scripts\python.exe -m pip`.
+The installer tries to prepare a depot-managed `uv` installation in `tools\uv_venv\` and prefers that managed tool over a random globally installed `uv`. If `uv` is unavailable or fails, setup logs the issue and falls back to `.venv\Scripts\python.exe -m pip`.
 
 Useful environment switches:
 
@@ -85,78 +87,97 @@ Useful environment switches:
 set JPL_CAD_NO_UV=1
 ```
 
-Skip all `uv` use and use pip only.
+Disables all `uv` usage and uses pip only.
 
 ```bat
 set JPL_CAD_SKIP_MANAGED_UV=1
 ```
 
-Skip preparing depot-managed `uv`, but still allow an existing global `uv` if available.
+Skips preparation of depot-managed `uv`, but still allows an existing global `uv` if available.
 
 ## Offline / wheelhouse workflow
 
-Build wheelhouse while online:
+Build a wheelhouse while online:
 
 ```bat
 build_wheelhouse_windows.bat
 ```
 
-Then copy the project including `wheelhouse/` to an offline machine and run:
+Then copy the project folder, including `wheelhouse\`, to the offline machine and run:
 
 ```bat
 install_offline_windows.bat
 ```
 
-## Ollama setup
+The offline installer uses local wheelhouse files and the project-local virtual environment.
 
-Default endpoint:
+## Ollama usage
+
+Default Ollama endpoint:
 
 ```text
 http://localhost:11434
 ```
 
-Start Ollama and make sure a model is available, for example:
+Start Ollama and ensure at least one model is installed. Inside the application, use **List models** to fill the model selector, then choose a model and press the Ollama analysis button for the selected CAD record.
 
-```bat
-ollama pull gemma4:26b
-ollama serve
-```
+The application uses:
 
-Inside the app, use **List models** to fill the model selector. The app uses Ollama's `/api/tags` endpoint to list local models and `/api/generate` with `stream=false` for one-shot analysis.
+- `/api/tags` to list local models
+- `/api/generate` for local analysis and follow-up responses
+
+Ollama requests are made only when the user presses the corresponding button. CAD records are not sent to Ollama automatically.
+
+The Ollama tab includes a timeout setting, a running progress indicator, and an elapsed-time counter for long local model requests.
 
 ## CAD query notes
 
-Useful CAD parameters exposed in the GUI:
+Common CAD parameters exposed in the GUI include:
 
-- `date-min`, `date-max`: date range. `now` and `+60` are supported by the API.
-- `dist-max`: distance maximum. You can use au values like `0.05` or lunar-distance values like `10LD`.
-- `body`: Earth, Moon, Mars, Jupiter, etc., or all bodies.
-- `des`: object designation, e.g. `99942` for Apophis.
-- `sort`: sort by date, distance, relative speed, H, object, etc.
-- `diameter=true`: include known diameter values if available.
-- `fullname=true`: include formatted full names.
+- `date-min`, `date-max`: date range; values such as `now` and `+60` are supported by the API.
+- `dist-max`: maximum distance; values may use au units such as `0.05` or lunar-distance values such as `10LD`.
+- `body`: close-approach target body such as Earth, Moon, Mars, Jupiter, or all supported bodies.
+- `des`: object designation, for example `99942` for Apophis.
+- `sort`: sort order such as date, distance, relative speed, absolute magnitude, or object name.
+- `diameter=true`: request diameter information when available.
+- `fullname=true`: request formatted full object names.
 
-## Presets
-
-- Next 60 days: default Earth NEO close approaches under 0.05 au.
-- `< 10 LD / 365 days`: nearby Earth approaches in the next year sorted by distance.
-- Apophis 2029: example query for 99942 Apophis in 2029.
+When a specific object designation is used, the application sanitizes incompatible category filters before sending the API request. This prevents invalid CAD API combinations such as sending `neo=true` together with a specific `des` value.
 
 ## Themes and languages
 
-Themes are loaded from `themes/*.json`. The included themes are:
+Themes are loaded from `themes/*.json` and can be edited or extended without modifying application code. Included themes:
 
 - Light
 - Dark
 - Sepia
 - Ocean
 - Matrix
-- Hölle / Hellfire
+- Hellfire
 - Purple
 
-Languages are loaded from `lang/*.json`. Included language files are English, German, French, and Russian. English remains the installer/default language.
+Languages are loaded from `lang/*.json`. Included languages:
 
-## Files and folders
+- English
+- German
+- French
+- Russian
+
+The installer uses English by default. The application UI language can be changed in Options.
+
+## Output folders
+
+Generated files are written under `output/` when needed:
+
+```text
+output/
+  visualizations/
+  logs/
+```
+
+Visualization files are local HTML files opened in the default browser. Error details and long diagnostic output may be written to `output/logs/`.
+
+## Project layout
 
 ```text
 app.py
@@ -169,30 +190,14 @@ src/jpl_cad_ollama_explorer/
 lang/
 themes/
 docs/
-output/visualizations/
+output/
 ```
 
-## Suggested future upgrades
+## Documentation
 
-- Optional Horizons/SPICE mode for real state-vector propagation.
-- MPC observation import.
-- SBDB object-detail lookup per selected designation.
-- Cached CAD query history.
-- Export CSV/Markdown reports.
-- More advanced covariance visualization when suitable source data is available.
+- `docs/SCIENTIFIC_LIMITATIONS.md` explains the scientific boundaries of the local simulation.
+- `docs/CHANGELOG.md` contains release notes.
 
+## License
 
-## Version 0.1.1
-
-Maintenance fix: the Python setup script now enables Windows Virtual Terminal ANSI support only when possible and otherwise falls back to plain text output. This prevents raw sequences such as `\x1b[96m` from appearing during installation on hosts where ANSI processing is disabled.
-
-
-## Version 0.1.3
-
-Maintenance fix: the installer now prepares an optional depot-managed `uv` installation under the selected PythonDepot path, e.g. `D:\PythonDepot\tools\uv_venv\`. Wheelhouse builds also download the `uv` package so offline machines can prepare managed `uv` from `wheelhouse/` when available. `uv` remains optional and setup always falls back to venv pip if it fails.
-
-
-## Notes for v0.1.4
-
-- Specific-object CAD searches, for example Apophis via designation `99942`, now omit incompatible category filters before calling the JPL API. This avoids API error 400 messages such as `filter neo not allowed when specifying a specific object with spk or des`.
-- Runtime language switching now updates substantially more static GUI text: group boxes, labels, buttons, checkboxes, table headers, unit suffixes, body names, and the About/Simulation default text.
+No license file is included in this package. Add a license before public redistribution if required.
