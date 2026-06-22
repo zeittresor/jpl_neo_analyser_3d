@@ -1,5 +1,75 @@
 # Changelog
 
+## v0.1.22
+
+- 3D visualization: Added optional procedural texture modes (off, simple, enhanced) for generated HTML scenes.
+- 3D visualization: Central bodies now use approximate body-specific textures such as Earth-like land/ocean, rocky cratered worlds, and banded gas giants.
+- 3D visualization: Added a visually enlarged flyby object with a procedural small-body texture so the object itself is easier to see in the scene.
+- Options: Added a new 3D object textures setting, saved in config and localized in the UI/tooltips.
+- Documentation: Updated README to version 0.1.22 and kept it publication-oriented.
+
+## v0.1.21
+
+- Improved generated 3D HTML layout for ultrawide monitors by constraining the Plotly view to a readable centered viewport.
+- Added theme-aware colors to generated 3D HTML output based on the selected app theme.
+- Moved the large 3D scientific limitation banner out of the default HTML view; Usage Notes remain the primary place for explanatory limitations.
+- The optional 3D scientific note is now off by default and, if enabled, appears as a compact collapsible note below the visualization instead of a full-width top banner.
+
+
+## 0.1.20 - 2026-06-22
+
+- Data table: Replaced missing-only impact handling with a local impact-probability/proxy calculation when distance, uncertainty interval and target-body radius data are available.
+- Data table: Added derived scientific context columns for min/max distance in km, 3-sigma span in km, miss distance in target-body radii, and approximate kinetic energy in megatons TNT.
+- Network/time: Added a public-NTP time/network check with system-clock fallback, displayed in the bottom status area.
+- Analysis: Ollama prompts now include the current network/time context and the expanded derived scientific columns.
+- Reliability: If a live CAD fetch fails while a previous cache exists, the app loads the cached CAD snapshot instead of leaving the user with only an error dialog.
+- Usage Notes: Updated localized explanations for compact derived values, the local impact proxy, NTP status, and cache fallback behavior.
+- Documentation: Updated README to version 0.1.20 and kept it publication-oriented.
+
+## 0.1.19 - 2026-06-22
+
+- UI: Added a localized Usage Notes tab for explanations that should not clutter the main data table.
+- UI: Main-table missing CAD impact-probability values now use a compact dash instead of long explanatory text.
+- Data table: Kept the Impact prob. % column concise while documenting its meaning in Usage Notes.
+- Reliability: Fixed selected-record lookup after table sorting by matching visible object/date back to the underlying CAD record.
+- Documentation: Updated README to version 0.1.19 and kept it publication-oriented.
+
+## 0.1.18 - 2026-06-22
+
+- UI: The main window now opens maximized by default and fresh configurations default to the Ocean theme.
+- UI: Added scrollable simulation/options panes and adjusted the data table layout for better resizing.
+- Data table: Added a live countdown/age column directly in the CAD table.
+- Data table: Added local computed columns for risk score, CAD impact-probability availability, and rough satellite-relevance context.
+- Analysis: Added an option to show or suppress local-computed/heuristic notes.
+- Analysis: Added an LLM assessment-mode dropdown for data-focused, scientific assessment, or exploratory what-if behavior.
+- Ollama: Follow-up prompts now receive the selected record plus visible computed columns and the chosen assessment mode.
+- Documentation: Updated README to version 0.1.18 and kept it publication-oriented.
+
+## 0.1.17 - 2026-06-22
+
+- Ollama: Replaced raw connection-refused tracebacks with a simple localized dialog explaining that Ollama is not running or the configured URL is unreachable.
+- Ollama: Added options in the dialog to start a locally found Ollama executable and retry, retry manually, or open the Ollama download page.
+- Error handling: Ollama connection diagnostics are now written to `output/logs/ollama_connection_*.txt` instead of being shown directly to normal users.
+- Documentation: Updated README to version 0.1.17 and kept it publication-oriented.
+
+## 0.1.16 - 2026-06-22
+
+- Data: Added localized placeholder hints to optional query filter fields such as designation, H min/max, and v_rel min/max so empty filters are no longer visually ambiguous.
+- Data: Added a localized note under the query filters explaining that empty optional fields mean no restriction is applied for that value.
+- UI: Added localized tooltips for the main CAD query filter inputs, not only the action buttons.
+- Documentation: Updated README to version 0.1.16 and kept it publication-oriented.
+
+## 0.1.15 - 2026-06-22
+
+- Data: Added local CAD payload caching under `cache/last_cad_payload.json`; the app loads the last successful CAD result on startup and automatically creates an initial cache when no cache exists.
+- Data: Added table columns showing whether each current CAD record is new, unchanged, changed, loaded from cache, or unavailable for comparison.
+- Data: Added a selected-record details panel with explicit unavailable-value text for fields not provided by the CAD response.
+- Data: Added a live countdown/elapsed-time display for the selected close-approach timestamp.
+- Analysis: Ollama prompts now include local cache/change comparison context so changed CAD values can be discussed as newer measurement/orbit-solution refinements.
+- Options: Added controls to show or suppress repeated scientific limitation/disclaimer notes in Ollama responses and 3D HTML output.
+- 3D: Generated visualization HTML can now omit the educational limitation notice when the corresponding option is disabled.
+- Documentation: Updated README to version 0.1.15 and kept it publication-oriented.
+
 ## 0.1.14 - 2026-06-21
 
 - TTS: Read aloud now strips Markdown-style formatting markers before sending text to Windows text-to-speech.

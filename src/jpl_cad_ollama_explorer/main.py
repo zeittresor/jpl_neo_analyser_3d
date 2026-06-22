@@ -27,7 +27,7 @@ def main() -> int:
     translator = Translator(root / "lang", "en")
     theme_manager = ThemeManager(root / "themes")
     window = MainWindow(app, root, translator, theme_manager)
-    window.show()
+    window.showMaximized()
     return app.exec()
 
 

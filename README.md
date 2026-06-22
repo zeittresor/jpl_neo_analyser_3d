@@ -4,7 +4,7 @@ A local-first Python/PyQt6 desktop application for querying NASA/JPL SBDB Close 
 
 Original source / updates: `github.com/zeittresor`
 
-Version: `0.1.14`
+Version: `0.1.22`
 
 ## Purpose
 
@@ -12,28 +12,35 @@ JPL CAD Ollama Explorer is intended as an accessible desktop front end for the N
 
 The application is designed for educational, exploratory, and technical analysis workflows. It is not an official NASA/JPL tool and must not be used as an authoritative impact-risk predictor.
 
-<img width="1483" height="959" alt="jpl_data_analytics1" src="https://github.com/user-attachments/assets/f36c7867-f75f-403d-b892-5bcd2e9189c8" />
-
-<img width="1487" height="949" alt="jpl_data_analytics2" src="https://github.com/user-attachments/assets/15f195e7-3cf4-4b73-8e40-4197b436778f" />
-
-<img width="1507" height="675" alt="jpl_data_3d" src="https://github.com/user-attachments/assets/d0dc133a-aa52-46e5-8fcb-8ddc60835815" />
-
 ## Main features
 
 - Query the NASA/JPL CAD API at `https://ssd-api.jpl.nasa.gov/cad.api`.
-- Use GUI filters for date range, target body, maximum distance, object designation, sorting, object class, NEO/PHA/NEA/comet filters, relative velocity, and absolute magnitude.
+- Use GUI filters for date range, target body, maximum distance, object designation, sorting, object class, NEO/PHA/NEA/comet filters, relative velocity, and absolute magnitude, with localized hints for optional empty filter fields.
 - Use built-in presets such as next-60-days Earth close approaches, nearby Earth approaches within 10 lunar distances, and Apophis 2029.
-- Display CAD records in a readable table with converted values such as kilometers and lunar distances.
+- Display CAD records in a readable table with converted values such as kilometers, lunar distances, min/max distance in km, 3-sigma distance span, miss distance in target-body radii, local impact-probability proxy, and approximate kinetic-energy context.
+- Show the close-approach countdown directly in the table and in the selected-record detail panel.
+- Show additional compact columns for local risk scoring, local impact-probability/proxy values when enough distance/radius data exist, approximate energy context, and rough satellite-relevance context.
+- Load the last successful CAD result from a local cache on startup, automatically create an initial cache snapshot on first launch when no cache exists, and fall back to cache if a live CAD request fails later.
+- Compare newly fetched CAD records with the previous cached fetch and show whether selected values are new, unchanged, or changed.
+- Perform a lightweight public-NTP time/network check and pass that time/connectivity context to Ollama prompts.
+- Show explicit selected-record detail fields with clear “not available” text when a CAD response does not provide a value.
 - Show local non-official triage labels such as `Routine`, `Nearby`, `Close`, or `Very close`.
-- Open a selected record in a local Plotly/WebGL HTML visualization.
+- Open a selected record in a local Plotly/WebGL HTML visualization with optional procedural textures for the target body and a visually enlarged flyby object.
 - Run a simplified local what-if simulation comparing straight-line geometry, central-body gravity, and approximate Sun/major-planet tidal terms.
-- Request a local Ollama analysis for the selected record on demand.
+- Request a local Ollama analysis for the selected record on demand, including optional change-comparison context from the previous cached CAD fetch.
+- Show a simple localized Ollama-unavailable dialog if the local Ollama service is not running, with options to start a found local Ollama executable, retry, or open the Ollama download page.
 - Ask follow-up questions to Ollama using the selected CAD record and previous analysis as context.
 - View Ollama responses in a formatted Markdown-like analysis pane with headings, emphasis, lists, and code blocks.
 - Copy or print the formatted analysis output.
-- Optionally read the analysis aloud using Windows text-to-speech.
+- Optionally read the latest answer or the full visible analysis aloud using Windows text-to-speech with Markdown formatting markers removed from spoken output.
+- Use a localized Usage Notes tab for explanations of compact table values such as local impact-probability/proxy logic, derived scientific context fields, local risk scoring, satellite context, NTP time/network status, and LLM interpretation modes.
+- Optionally suppress repeated educational/scientific limitation notes in Ollama responses and generated 3D HTML output.
+- Choose whether Ollama should stay data-focused, provide a normal scientific assessment, or allow broader exploratory what-if estimates for follow-up questions.
+- Choose whether local-computed/heuristic notes are explicitly shown or kept terse.
+- Start maximized by default and use Ocean as the default theme on a fresh configuration.
 - Switch between English, German, French, and Russian UI language files.
 - Switch between bundled themes: Light, Dark, Sepia, Ocean, Matrix, Hellfire, and Purple.
+- Choose flat colors, simple procedural textures, or enhanced procedural textures for generated 3D scenes.
 - Use localized tooltips for the main controls and actions.
 - Install into a project-local `.venv` while using a shared depot/cache path for reusable caches and optional managed tools.
 
@@ -125,7 +132,7 @@ Default Ollama endpoint:
 http://localhost:11434
 ```
 
-Start Ollama and ensure at least one model is installed. Inside the application, use **List models** to fill the model selector, then choose a model and press the Ollama analysis button for the selected CAD record.
+Start Ollama and ensure at least one model is installed. Inside the application, use **Refresh model list** to update the model selector, then choose a model and press the Ollama analysis button for the selected CAD record.
 
 The application uses:
 
@@ -134,7 +141,7 @@ The application uses:
 
 Ollama requests are made only when the user presses the corresponding button. CAD records are not sent to Ollama automatically.
 
-The Ollama tab includes a timeout setting, a running progress indicator, and an elapsed-time counter for long local model requests.
+The Ollama tab includes a 32k default context-length control with 4k-256k slider presets, a timeout setting, a running progress indicator, and an elapsed-time counter for long local model requests.
 
 ## CAD query notes
 
@@ -173,9 +180,11 @@ The installer uses English by default. The application UI language can be change
 
 ## Output folders
 
-Generated files are written under `output/` when needed:
+Generated files are written under `output/` when needed. The last successful CAD API payload is cached under `cache/` so a later offline start can still show the last available dataset.
 
 ```text
+cache/
+  last_cad_payload.json
 output/
   visualizations/
   logs/
@@ -196,6 +205,7 @@ src/jpl_cad_ollama_explorer/
 lang/
 themes/
 docs/
+cache/
 output/
 ```
 

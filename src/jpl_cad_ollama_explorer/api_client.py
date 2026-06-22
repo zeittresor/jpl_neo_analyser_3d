@@ -115,9 +115,22 @@ class OllamaClient:
         self.timeout_seconds = timeout_seconds
 
     def list_models(self) -> list[str]:
-        response = requests.get(f"{self.base_url}/api/tags", timeout=15)
-        response.raise_for_status()
-        payload = response.json()
+        try:
+            response = requests.get(f"{self.base_url}/api/tags", timeout=15)
+            response.raise_for_status()
+            payload = response.json()
+        except requests.exceptions.ConnectTimeout as exc:
+            raise RuntimeError(
+                "Could not connect to Ollama in time. Check whether Ollama is running and whether the URL is correct."
+            ) from exc
+        except requests.exceptions.ConnectionError as exc:
+            raise RuntimeError(
+                "Could not connect to Ollama. Check whether Ollama is running at the configured URL."
+            ) from exc
+        except requests.exceptions.HTTPError as exc:
+            raise RuntimeError(f"Ollama returned an HTTP error while listing models: {exc}") from exc
+        except ValueError as exc:
+            raise RuntimeError(f"Ollama did not return valid JSON while listing models: {exc}") from exc
         models = payload.get("models", [])
         return [m.get("name", "") for m in models if m.get("name")]
 
