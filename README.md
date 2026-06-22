@@ -224,4 +224,4 @@ output/
 
 ## License
 
-No license file is included in this package. Add a license before public redistribution if required.
+MIT license.
