@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable, Generic, TypeVar
 
 from PyQt6.QtCore import QThread, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtPrintSupport import QPrintDialog, QPrinter
 from PyQt6.QtWidgets import (
     QApplication,
@@ -175,6 +176,29 @@ class MainWindow(QMainWindow):
         "Changed fields",
     ]
 
+    app_derived_columns = {
+        "Countdown",
+        "Min km",
+        "Max km",
+        "3σ span km",
+        "Miss radii",
+        "Energy Mt TNT",
+        "Triage",
+        "Risk score",
+        "Impact prob. %",
+        "Satellite note",
+        "Change",
+        "Changed fields",
+    }
+
+    llm_correctable_columns = {
+        "Risk score",
+        "Impact prob. %",
+        "Satellite note",
+        "Energy Mt TNT",
+        "Miss radii",
+    }
+
     def __init__(
         self,
         app: QApplication,
@@ -195,6 +219,7 @@ class MainWindow(QMainWindow):
         self.cache_dir = self.root_dir / "cache"
         self.cache_path = self.cache_dir / "last_cad_payload.json"
         self.record_changes: dict[str, dict[str, object]] = {}
+        self.llm_table_corrections: dict[str, dict[str, str]] = {}
         self.cache_loaded_at: str = ""
         self.analysis_request_id = 0
         self.active_ollama_request_id: int | None = None
@@ -274,6 +299,30 @@ class MainWindow(QMainWindow):
             "col_changed_fields",
         ]
         return [t(key) for key in keys]
+
+    def _column_source_label(self, column_name: str) -> str:
+        return self.translator.t("column_source_app") if column_name in self.app_derived_columns else self.translator.t("column_source_cad")
+
+    def _apply_table_headers(self) -> None:
+        labels = self._translated_table_headers()
+        for col_idx, (column_name, label) in enumerate(zip(self.table_columns, labels)):
+            item = QTableWidgetItem(label)
+            if column_name in self.app_derived_columns:
+                item.setBackground(QBrush(QColor("#5a3b00")))
+                item.setForeground(QBrush(QColor("#fff2bf")))
+                item.setToolTip(self.translator.t("tip_app_derived_column"))
+            else:
+                item.setToolTip(self.translator.t("tip_cad_column"))
+            self.table.setHorizontalHeaderItem(col_idx, item)
+
+    def _style_table_item_by_column(self, item: QTableWidgetItem, column_name: str, corrected: bool = False) -> None:
+        if column_name in self.app_derived_columns:
+            item.setBackground(QBrush(QColor("#102932")))
+            item.setToolTip(self.translator.t("tip_app_derived_column"))
+        if corrected:
+            item.setBackground(QBrush(QColor("#3b275a")))
+            item.setForeground(QBrush(QColor("#f2ddff")))
+            item.setToolTip(self.translator.t("tip_llm_corrected_column"))
 
     def _about_html(self) -> str:
         t = self.translator.t
@@ -424,7 +473,7 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.table = QTableWidget(0, len(self.table_columns))
-        self.table.setHorizontalHeaderLabels(self._translated_table_headers())
+        self._apply_table_headers()
         self.table.setSortingEnabled(True)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -669,6 +718,8 @@ class MainWindow(QMainWindow):
         self.assessment_mode_combo.setCurrentIndex(1)
         self.heuristic_notes_check = QCheckBox("Show local-computed / heuristic notes")
         self.heuristic_notes_check.setChecked(False)
+        self.allow_llm_table_corrections_check = QCheckBox("Allow Ollama to correct app-derived table fields")
+        self.allow_llm_table_corrections_check.setChecked(True)
         self.ollama_disclaimer_check = QCheckBox("Include scientific limitation notes in Ollama output")
         self.ollama_disclaimer_check.setChecked(True)
         self.visualization_disclaimer_check = QCheckBox("Include scientific limitation notice in 3D HTML")
@@ -680,6 +731,7 @@ class MainWindow(QMainWindow):
         form.addRow(self._label("label_texture_mode", "3D object textures"), self.texture_mode_combo)
         form.addRow(self._label("label_assessment_mode", "LLM assessment mode"), self.assessment_mode_combo)
         form.addRow("", self.heuristic_notes_check)
+        form.addRow("", self.allow_llm_table_corrections_check)
         form.addRow("", self.ollama_disclaimer_check)
         form.addRow("", self.visualization_disclaimer_check)
         layout.addWidget(box)
@@ -726,6 +778,7 @@ class MainWindow(QMainWindow):
         self.language_combo.currentIndexChanged.connect(self.change_language)
         self.output_browse_btn.clicked.connect(self.browse_output_dir)
         self.save_options_btn.clicked.connect(self._save_config)
+        self.allow_llm_table_corrections_check.stateChanged.connect(lambda _state: self._refresh_table_preserve_selection())
         self.open_output_btn.clicked.connect(self.open_output_folder)
 
     def _apply_texts(self) -> None:
@@ -772,6 +825,7 @@ class MainWindow(QMainWindow):
         self._set_combo_item_text_by_data(self.assessment_mode_combo, "assessment", t("assessment_mode_scientific"))
         self._set_combo_item_text_by_data(self.assessment_mode_combo, "exploratory", t("assessment_mode_exploratory"))
         self.heuristic_notes_check.setText(t("include_heuristic_notes"))
+        self.allow_llm_table_corrections_check.setText(t("allow_llm_table_corrections"))
         self.ollama_disclaimer_check.setText(t("include_ollama_disclaimer"))
         self.visualization_disclaimer_check.setText(t("include_visualization_disclaimer"))
 
@@ -798,7 +852,7 @@ class MainWindow(QMainWindow):
 
         self._apply_filter_placeholders()
 
-        self.table.setHorizontalHeaderLabels(self._translated_table_headers())
+        self._apply_table_headers()
         self.usage_text.setHtml(self._usage_notes_html())
         self.about_text.setHtml(self._about_html())
         if self.analysis_markdown:
@@ -869,6 +923,7 @@ class MainWindow(QMainWindow):
             self.ollama_disclaimer_check: "tip_include_ollama_disclaimer",
             self.visualization_disclaimer_check: "tip_include_visualization_disclaimer",
             self.heuristic_notes_check: "tip_include_heuristic_notes",
+            self.allow_llm_table_corrections_check: "tip_allow_llm_table_corrections",
             self.assessment_mode_combo: "tip_assessment_mode",
             self.context_slider: "tip_context_length",
             self.num_ctx_spin: "tip_context_length",
@@ -1016,7 +1071,70 @@ class MainWindow(QMainWindow):
             f"Kinetic energy estimate Mt TNT: {computed.get('Energy Mt TNT', 'n/a')}",
             f"Satellite relevance note: {computed.get('Satellite note', 'n/a')}",
         ]
-        return "\n".join([self._network_context_for_prompt(), ""] + record.summary_lines() + ["", "Visible computed columns:"] + computed_lines)
+        return "\n".join([self._network_context_for_prompt(), ""] + record.summary_lines() + ["", "Visible computed columns:"] + computed_lines + ["", "Table correction instruction:", self._table_correction_prompt_instruction()])
+
+    def _table_correction_prompt_instruction(self) -> str:
+        if not self.allow_llm_table_corrections_check.isChecked():
+            return "LLM table corrections are disabled by the user; do not emit an APP_TABLE_CORRECTIONS block.\n"
+        keys = ", ".join(sorted(self.llm_correctable_columns))
+        return (
+            "The GUI table contains CAD/API columns and app-derived columns. "
+            "App-derived columns are local calculations and may be checked by you. "
+            "If, and only if, you find a concrete correction or better display value for an app-derived table field, "
+            "append this exact block at the very end of your answer. Use only JSON object keys from this allowed list: "
+            f"{keys}. Do not include commentary inside the block. Values must be short table-display strings.\n"
+            "<APP_TABLE_CORRECTIONS>{\"Risk score\":\"...\",\"Impact prob. %\":\"...\"}</APP_TABLE_CORRECTIONS>\n"
+            "If no correction is warranted, omit the block completely. The visible answer should still explain your reasoning normally.\n"
+        )
+
+    def _extract_llm_table_corrections(self, text: str) -> tuple[str, dict[str, str]]:
+        if not text:
+            return text, {}
+        pattern = re.compile(r"<APP_TABLE_CORRECTIONS>\s*(\{.*?\})\s*</APP_TABLE_CORRECTIONS>", re.DOTALL | re.IGNORECASE)
+        match = pattern.search(text)
+        if not match:
+            return text, {}
+        visible = (text[:match.start()] + text[match.end():]).strip()
+        corrections: dict[str, str] = {}
+        try:
+            payload = json.loads(match.group(1))
+            if isinstance(payload, dict):
+                for key, value in payload.items():
+                    if str(key) in self.llm_correctable_columns and value is not None:
+                        corrections[str(key)] = str(value).strip()[:120]
+        except Exception:
+            corrections = {}
+        return visible, corrections
+
+    def _apply_llm_table_corrections(self, record: CadRecord | None, corrections: dict[str, str]) -> None:
+        if record is None or not corrections or not self.allow_llm_table_corrections_check.isChecked():
+            return
+        clean = {k: v for k, v in corrections.items() if k in self.llm_correctable_columns and v}
+        if not clean:
+            return
+        key = self._record_key(record)
+        existing = self.llm_table_corrections.setdefault(key, {})
+        existing.update(clean)
+        self._refresh_table_preserve_selection(key)
+        self._set_status(self.translator.t("status_llm_table_corrections_applied"))
+
+    def _refresh_table_preserve_selection(self, record_key: str | None = None) -> None:
+        if not self.records:
+            return
+        if record_key is None:
+            current = self.selected_record()
+            record_key = self._record_key(current) if current else None
+        self.populate_table(self.records)
+        if record_key:
+            for row in range(self.table.rowCount()):
+                object_item = self.table.item(row, 0)
+                date_item = self.table.item(row, 1)
+                if not object_item or not date_item:
+                    continue
+                rec = self._record_by_object_date(object_item.text(), date_item.text())
+                if rec and self._record_key(rec) == record_key:
+                    self.table.selectRow(row)
+                    break
 
     def _current_response_language_name(self) -> str:
         lang = str(self.language_combo.currentData() or self.translator.language or "en")
@@ -1293,7 +1411,12 @@ class MainWindow(QMainWindow):
             f"- Approximate kinetic energy Mt TNT: {computed.get('Energy Mt TNT', 'n/a')}\n"
             f"- Satellite relevance note: {computed.get('Satellite note', 'n/a')}\n"
             f"- LLM assessment mode: {mode}\n"
-            f"- User wants explicit heuristic/local-computed notes: {show_heuristics}"
+            f"- User wants explicit heuristic/local-computed notes: {show_heuristics}\n\n"
+            "Column source/context note:\n"
+            "- CAD/API columns come directly from the parsed CAD payload or direct unit conversions of CAD fields.\n"
+            "- App-derived columns are computed locally by this GUI from visible CAD values and simple formulas; they should be treated as inspectable derived context, not unchangeable API facts.\n"
+            "- If an app-derived value appears inconsistent, recalculate/check it and use the correction block if enabled.\n\n"
+            + self._table_correction_prompt_instruction()
         )
 
     def _set_selected_field(self, key: str, value: object) -> None:
@@ -1509,7 +1632,7 @@ class MainWindow(QMainWindow):
             score_text += " " + self.translator.t("local_computed_suffix")
         from .cad_models import format_number
         energy_mt = self._kinetic_energy_mt_tnt(record)
-        return {
+        values = {
             "Countdown": self._countdown_text(record),
             "Min km": format_number(self._min_distance_km(record), 0),
             "Max km": format_number(self._max_distance_km(record), 0),
@@ -1520,6 +1643,12 @@ class MainWindow(QMainWindow):
             "Satellite note": self._satellite_note_text(record),
             "Energy Mt TNT": "—" if energy_mt is None else f"{energy_mt:,.6g}",
         }
+        if self.allow_llm_table_corrections_check.isChecked():
+            corrections = self.llm_table_corrections.get(self._record_key(record), {})
+            for key, value in corrections.items():
+                if key in self.llm_correctable_columns and str(value).strip():
+                    values[key] = str(value).strip()
+        return values
 
     def _load_config(self) -> None:
         if not self.config_path.exists():
@@ -1563,6 +1692,7 @@ class MainWindow(QMainWindow):
             if midx >= 0:
                 self.assessment_mode_combo.setCurrentIndex(midx)
             self.heuristic_notes_check.setChecked(bool(data.get("include_heuristic_notes", False)))
+            self.allow_llm_table_corrections_check.setChecked(bool(data.get("allow_llm_table_corrections", True)))
             self.ollama_disclaimer_check.setChecked(bool(data.get("include_ollama_disclaimer", True)))
             self.visualization_disclaimer_check.setChecked(bool(data.get("include_visualization_disclaimer", False)))
             self.output_path_edit.setText(data.get("output_dir", self.output_path_edit.text()))
@@ -1592,6 +1722,7 @@ class MainWindow(QMainWindow):
             "visualization_texture_mode": self.texture_mode_combo.currentData(),
             "assessment_mode": self.assessment_mode_combo.currentData(),
             "include_heuristic_notes": self.heuristic_notes_check.isChecked(),
+            "allow_llm_table_corrections": self.allow_llm_table_corrections_check.isChecked(),
             "include_ollama_disclaimer": self.ollama_disclaimer_check.isChecked(),
             "include_visualization_disclaimer": self.visualization_disclaimer_check.isChecked(),
             "theme": self.theme_combo.currentData(),
@@ -1860,6 +1991,8 @@ class MainWindow(QMainWindow):
                 item = NumericItem(text, numeric_map.get(col))
                 if col in numeric_map:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                corrected = col in self.llm_table_corrections.get(self._record_key(record), {}) and self.allow_llm_table_corrections_check.isChecked()
+                self._style_table_item_by_column(item, col, corrected=corrected)
                 self.table.setItem(row_idx, col_idx, item)
         self.table.resizeColumnsToContents()
         self.table.setSortingEnabled(True)
@@ -2061,9 +2194,12 @@ class MainWindow(QMainWindow):
     def _ollama_done(self, request_id: int, text: str) -> None:
         if self.active_ollama_request_id != request_id:
             return
-        response_text = text or self.translator.t("ollama_empty_response")
+        selected = self.selected_record()
+        visible_text, corrections = self._extract_llm_table_corrections(text)
+        response_text = visible_text or self.translator.t("ollama_empty_response")
         self.last_assistant_response_text = response_text
         self._set_analysis_markdown(response_text, clear_chat=True)
+        self._apply_llm_table_corrections(selected, corrections)
         self._set_status(self.translator.t("status_ollama_complete"))
 
     def _ollama_failed(self, request_id: int, message: str) -> None:
@@ -2193,9 +2329,12 @@ class MainWindow(QMainWindow):
     def _ollama_followup_done(self, request_id: int, question: str, text: str) -> None:
         if self.active_ollama_request_id != request_id:
             return
-        response_text = text or self.translator.t("ollama_empty_response")
+        selected = self.selected_record()
+        visible_text, corrections = self._extract_llm_table_corrections(text)
+        response_text = visible_text or self.translator.t("ollama_empty_response")
         self.last_assistant_response_text = response_text
         self._append_chat_turn(question, response_text)
+        self._apply_llm_table_corrections(selected, corrections)
         self._set_status(self.translator.t("status_ollama_complete"))
     def create_visualization(self, open_after: bool) -> None:
         record = self.selected_record()

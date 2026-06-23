@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.1.23
+
+- Data table: Differently colored headers now mark app-derived columns such as countdown, risk score, local impact proxy, satellite note, energy estimate, and change status.
+- Data table: App-derived cells receive subtle styling; values corrected by Ollama are highlighted separately.
+- Options: Added a checkbox to allow or disable Ollama corrections for app-derived table fields.
+- Ollama: Prompts now explicitly explain which visible fields are app-derived and may be checked/corrected, while CAD/API fields remain authoritative input data.
+- Ollama: Added parsing for an optional structured APP_TABLE_CORRECTIONS block that can update app-derived display values for the selected row.
+- Usage Notes: Added localized explanation of column coloring, value sources, and Ollama correction behavior.
+- Documentation: Updated README to version 0.1.23 and kept it publication-oriented.
+
 ## v0.1.22
 
 - 3D visualization: Added optional procedural texture modes (off, simple, enhanced) for generated HTML scenes.
