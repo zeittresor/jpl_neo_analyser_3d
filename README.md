@@ -4,7 +4,7 @@ A local-first Python/PyQt6 desktop application for querying NASA/JPL SBDB Close 
 
 Original source / updates: `github.com/zeittresor`
 
-Version: `0.1.23`
+Version: `0.1.27`
 
 ## Purpose
 
@@ -12,22 +12,16 @@ JPL CAD Ollama Explorer is intended as an accessible desktop front end for the N
 
 The application is designed for educational, exploratory, and technical analysis workflows. It is not an official NASA/JPL tool and must not be used as an authoritative impact-risk predictor.
 
-<img width="2560" height="1039" alt="jpl_cad_ollama_explorer_1" src="https://github.com/user-attachments/assets/5b1bc9ab-abe7-4c49-bfba-b4e9a53b33fc" />
-
-<img width="2560" height="1037" alt="jpl_cad_ollama_explorer_2a" src="https://github.com/user-attachments/assets/503c943e-25a6-4787-a5a6-cc71b76d1eb0" />
-
-<img width="2560" height="1039" alt="jpl_cad_ollama_explorer_2b" src="https://github.com/user-attachments/assets/dfbfdd1e-f06e-4f3a-8f7d-ecd66767d24d" />
-
-<img width="2560" height="905" alt="jpl_cad_ollama_explorer_3" src="https://github.com/user-attachments/assets/d85d02a9-dcec-4ad7-8926-f814bcf28686" />
-
 ## Main features
 
 - Query the NASA/JPL CAD API at `https://ssd-api.jpl.nasa.gov/cad.api`.
 - Use GUI filters for date range, target body, maximum distance, object designation, sorting, object class, NEO/PHA/NEA/comet filters, relative velocity, and absolute magnitude, with localized hints for optional empty filter fields.
 - Use built-in presets such as next-60-days Earth close approaches, nearby Earth approaches within 10 lunar distances, and Apophis 2029.
 - Display CAD records in a readable table with converted values such as kilometers, lunar distances, min/max distance in km, 3-sigma distance span, miss distance in target-body radii, local impact-probability proxy, and approximate kinetic-energy context.
+- Visually mark app-derived table columns separately from CAD/API columns and highlight manually applied LLM-corrected display values.
+- Visually distinguish app-derived table columns from direct CAD/API columns using differently colored headers and cell styling.
 - Show the close-approach countdown directly in the table and in the selected-record detail panel.
-- Show additional compact columns for local risk scoring, local impact-probability/proxy values when enough distance/radius data exist, approximate energy context, and rough satellite-relevance context.
+- Show additional compact columns for current-encounter scoring, local impact-probability/proxy values when the available interval actually overlaps the target-body radius, approximate energy context, and rough satellite-relevance context.
 - Load the last successful CAD result from a local cache on startup, automatically create an initial cache snapshot on first launch when no cache exists, and fall back to cache if a live CAD request fails later.
 - Compare newly fetched CAD records with the previous cached fetch and show whether selected values are new, unchanged, or changed.
 - Perform a lightweight public-NTP time/network check and pass that time/connectivity context to Ollama prompts.
@@ -36,10 +30,15 @@ The application is designed for educational, exploratory, and technical analysis
 - Open a selected record in a local Plotly/WebGL HTML visualization with optional procedural textures for the target body and a visually enlarged flyby object.
 - Run a simplified local what-if simulation comparing straight-line geometry, central-body gravity, and approximate Sun/major-planet tidal terms.
 - Request a local Ollama analysis for the selected record on demand, including optional change-comparison context from the previous cached CAD fetch.
+- Include an additional short article-style prose section in Ollama analyses, with accessible comparisons and calm scientific context before the more technical assessment.
+- Keep recurring CAD/simulation limitation notes in the localized Usage Notes area instead of repeatedly placing long boilerplate sections in the main Ollama answer.
+- Optionally allow Ollama to return structured corrections for app-derived table display values, while keeping CAD/API fields unchanged.
 - Show a simple localized Ollama-unavailable dialog if the local Ollama service is not running, with options to start a found local Ollama executable, retry, or open the Ollama download page.
 - Ask follow-up questions to Ollama using the selected CAD record and previous analysis as context.
+- Let Ollama propose corrections for app-derived table fields, show whether suggestions are pending or absent, then apply those corrections manually with an explicit review button.
 - View Ollama responses in a formatted Markdown-like analysis pane with headings, emphasis, lists, and code blocks.
 - Copy or print the formatted analysis output.
+- Export the visible table as CSV.
 - Optionally read the latest answer or the full visible analysis aloud using Windows text-to-speech with Markdown formatting markers removed from spoken output.
 - Use a localized Usage Notes tab for explanations of compact table values such as local impact-probability/proxy logic, derived scientific context fields, local risk scoring, satellite context, NTP time/network status, and LLM interpretation modes.
 - Optionally suppress repeated educational/scientific limitation notes in Ollama responses and generated 3D HTML output.
@@ -56,7 +55,7 @@ The application is designed for educational, exploratory, and technical analysis
 
 The JPL CAD API provides close-approach summary records. It does not provide the full state vector, full covariance, observational arc, full orbit solution, or official impact-probability analysis needed for authoritative orbit propagation.
 
-The simulation module in this application is therefore an educational approximation. It starts from CAD-style miss distance and relative velocity data and constructs a simplified target-centered flyby. This can help illustrate scale, speed, timing, uncertainty ranges, and rough perturbation sensitivity, but it is not equivalent to JPL Horizons, SPICE, Sentry, or a professional orbit-determination pipeline.
+The local score/proxy fields and simulation module are derived context, not official NASA/JPL risk products. The simulation module is an educational approximation. It starts from CAD-style miss distance and relative velocity data and constructs a simplified target-centered flyby. This can help illustrate scale, speed, timing, uncertainty ranges, and rough perturbation sensitivity, but it is not equivalent to JPL Horizons, SPICE, Sentry, or a professional orbit-determination pipeline.
 
 For authoritative risk assessment, compare against official NASA/JPL/CNEOS resources, JPL Horizons/SPICE data, Minor Planet Center observations, and the newest published orbit updates.
 
@@ -224,4 +223,4 @@ output/
 
 ## License
 
-MIT license.
+MIT license

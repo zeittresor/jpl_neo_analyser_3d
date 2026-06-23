@@ -39,12 +39,14 @@ def build_ollama_prompt(
         if include_heuristic_notes
         else "Do not repeatedly explain that local triage/scores are heuristics; keep caveats terse unless essential to avoid a wrong conclusion.\n"
     )
-    verification_task = "4. List concrete verification steps if someone wanted authoritative risk assessment."
+    verification_task = "5. If a concrete authoritative follow-up source matters for this selected record, mention it in one compact sentence; do not create a generic verification checklist."
     if not include_disclaimer:
-        verification_task = "4. Only mention verification steps if they materially help answer this specific record; avoid repeated generic disclaimers."
+        verification_task = "5. Do not add a generic verification checklist. Only mention a concrete authoritative source if it materially helps this selected record."
     return f"""{SYSTEM_NOTE}{limitation_instruction}
 Answer strictly in {response_language}.
 {mode_instruction}{heuristic_instruction}Use concise Markdown headings and bullets where helpful.
+Start the answer with an additional short, readable object article section. This article should be written like a compact science-news/observatory note: fluent prose, generally understandable, interesting comparisons, and a calm scientific tone. Keep it concise and do not replace the technical assessment sections that follow.
+Do not create long recurring limitation sections such as "limitations of CAD/local simulation" or generic "verification steps" blocks in the main visible answer. The GUI has localized Usage Notes for that. Keep caveats to one or two directly relevant sentences only when needed.
 
 CAD selected close approach record:
 {lines}
@@ -59,11 +61,13 @@ Additional local context:
 {extra_context or 'none'}
 
 Task:
-1. Give a concise human-readable situation assessment.
-2. Explain whether this looks routine, noteworthy, close, or high-attention based on distance, velocity, object size/uncertainty and time uncertainty.
-3. Explain what the local simulation can and cannot show.
+1. Add a short article-style section about the selected object and encounter. Use fluent prose, accessible comparisons, and interesting context. Keep it brief.
+2. Give the concise scientific situation assessment as before.
+3. Explain whether this looks routine, noteworthy, close, or high-attention based on distance, velocity, object size/uncertainty and time uncertainty.
+4. Mention simulation/local-derived-value limits only if they directly affect the selected record, and keep that to one compact sentence rather than a separate limitations section.
 {verification_task}
-5. Do not sensationalize. Do not infer an impact probability from this CAD record alone.
+6. Do not sensationalize. Do not infer an official impact probability from this CAD record alone.
+7. If table corrections are enabled in the additional local context, put the machine-readable APP_TABLE_CORRECTIONS block only at the very end and never inside a Markdown code fence. If no table correction is needed, emit an empty block exactly like <APP_TABLE_CORRECTIONS>{{}}</APP_TABLE_CORRECTIONS>. The GUI hides this block from the displayed text.
 """
 
 

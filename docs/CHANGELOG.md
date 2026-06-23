@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.1.27 - 2026-06-23
+
+- Ollama: Prompt now tells local models to keep long recurring CAD/simulation limitation and generic verification sections out of the main analysis text; these belong in Usage Notes.
+- Ollama: Added post-processing that removes common boilerplate limitation/verification sections from visible answers while preserving the object article and technical assessment.
+- Ollama: Table-correction prompt now asks for an empty machine-readable correction block when no correction is needed, so the GUI can distinguish “no corrections” from a missing block.
+- UI: Added a small LLM correction status label next to the manual apply button, showing whether corrections are pending, absent, applied, or disabled.
+- Usage Notes: Added an Ollama-specific note section explaining why recurring caveats are documented there rather than repeated in every answer.
+- Documentation: Updated README to version 0.1.27 and kept it publication-oriented.
+
+## 0.1.26 - 2026-06-23
+
+- Ollama: Updated the selected-record analysis prompt to include an additional short article-style prose section before the technical assessment.
+- Ollama: The new article section is intended to be generally understandable, comparison-rich, calm in tone, and additive to the existing scientific analysis rather than replacing it.
+- Documentation: Updated README to version 0.1.26 and kept it publication-oriented.
+
+## v0.1.25
+
+- Data table: Restored reliable click-to-sort behavior for all table headers after the custom app-derived header coloring change.
+- Data table: Header coloring now overlays the native Qt header instead of replacing it completely, preserving normal clickable/sortable header behavior and sort indicators.
+- Documentation: Updated README to version 0.1.25 and kept it publication-oriented.
+
+## v0.1.24
+
+- Data table: Reworked app-derived header coloring using a custom header view so derived-column headers remain visibly different even under strong themes such as Hellfire.
+- Data table: Added CSV export for the currently visible table.
+- Ollama: Changed LLM table corrections from automatic application to a manual review/apply flow with an explicit button.
+- Ollama: Pending LLM corrections are stored until the user applies them; CAD/API columns are still not overwritten.
+- Risk model: Revised the local Risk score to represent the current close-approach encounter rather than a MOID/PHA-style long-term orbital hazard score.
+- Impact proxy: Avoids misleading Gaussian tails when the CAD lower distance bound remains outside the target-body radius.
+- Usage Notes: Expanded formula explanations for column source coloring, current encounter score, impact proxy, CSV export, and manual LLM correction application.
+- Documentation: Updated README to version 0.1.24 and kept it publication-oriented.
+
 ## v0.1.23
 
 - Data table: Differently colored headers now mark app-derived columns such as countdown, risk score, local impact proxy, satellite note, energy estimate, and change status.

@@ -1,6 +1,7 @@
 # source: https://github.com/zeittresor
 from __future__ import annotations
 
+import csv
 import html
 import json
 import math
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import Callable, Generic, TypeVar
 
 from PyQt6.QtCore import QThread, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush
+from PyQt6.QtGui import QColor, QBrush, QPainter
 from PyQt6.QtPrintSupport import QPrintDialog, QPrinter
 from PyQt6.QtWidgets import (
     QApplication,
@@ -88,6 +89,40 @@ class NumericItem(QTableWidgetItem):
         if isinstance(other, NumericItem) and self.numeric_value is not None and other.numeric_value is not None:
             return self.numeric_value < other.numeric_value
         return super().__lt__(other)
+
+
+class SourceAwareHeaderView(QHeaderView):
+    """Header that visibly marks app-derived columns even when QSS themes override header item brushes."""
+
+    def __init__(self, orientation: Qt.Orientation, parent: QWidget | None = None) -> None:
+        super().__init__(orientation, parent)
+        self.derived_sections: set[int] = set()
+        self.derived_bg = QColor("#6a3f00")
+        self.derived_fg = QColor("#fff0c2")
+        self.derived_border = QColor("#d08b22")
+
+    def set_derived_sections(self, sections: set[int]) -> None:
+        self.derived_sections = set(sections)
+        self.viewport().update()
+
+    def paintSection(self, painter: QPainter, rect, logicalIndex: int) -> None:  # type: ignore[override]
+        # Let Qt draw the normal clickable/sortable header first.  A previous
+        # version replaced the full section painting for app-derived columns;
+        # that made the visual marking stronger, but could interfere with the
+        # native header sort affordance on some Windows/Qt theme combinations.
+        super().paintSection(painter, rect, logicalIndex)
+        if logicalIndex not in self.derived_sections:
+            return
+        painter.save()
+        overlay = QColor(self.derived_bg)
+        overlay.setAlpha(90)
+        painter.fillRect(rect.adjusted(1, 1, -1, -1), overlay)
+        painter.setPen(self.derived_border)
+        painter.drawRect(rect.adjusted(0, 0, -1, -1))
+        # A clear bottom stripe keeps the source marker visible even in vivid
+        # themes such as Hellfire while leaving the normal sort indicator intact.
+        painter.fillRect(rect.left() + 2, rect.bottom() - 4, max(1, rect.width() - 4), 3, self.derived_border)
+        painter.restore()
 
 
 class ErrorDetailsDialog(QDialog):
@@ -220,6 +255,7 @@ class MainWindow(QMainWindow):
         self.cache_path = self.cache_dir / "last_cad_payload.json"
         self.record_changes: dict[str, dict[str, object]] = {}
         self.llm_table_corrections: dict[str, dict[str, str]] = {}
+        self.pending_llm_table_corrections: dict[str, dict[str, str]] = {}
         self.cache_loaded_at: str = ""
         self.analysis_request_id = 0
         self.active_ollama_request_id: int | None = None
@@ -228,6 +264,8 @@ class MainWindow(QMainWindow):
         self.analysis_markdown = ""
         self.last_assistant_response_text = ""
         self.chat_turns: list[tuple[str, str]] = []
+        self._manual_sort_column = -1
+        self._manual_sort_order = Qt.SortOrder.AscendingOrder
         self._syncing_context_control = False
         self.context_token_values = [4096, 8192, 16384, 32768, 65536, 131072, 262144]
         self.tts_process: subprocess.Popen | None = None
@@ -305,15 +343,20 @@ class MainWindow(QMainWindow):
 
     def _apply_table_headers(self) -> None:
         labels = self._translated_table_headers()
+        derived_indices: set[int] = set()
         for col_idx, (column_name, label) in enumerate(zip(self.table_columns, labels)):
             item = QTableWidgetItem(label)
             if column_name in self.app_derived_columns:
-                item.setBackground(QBrush(QColor("#5a3b00")))
-                item.setForeground(QBrush(QColor("#fff2bf")))
+                derived_indices.add(col_idx)
+                item.setBackground(QBrush(QColor("#6a3f00")))
+                item.setForeground(QBrush(QColor("#fff0c2")))
                 item.setToolTip(self.translator.t("tip_app_derived_column"))
             else:
                 item.setToolTip(self.translator.t("tip_cad_column"))
             self.table.setHorizontalHeaderItem(col_idx, item)
+        header = self.table.horizontalHeader()
+        if isinstance(header, SourceAwareHeaderView):
+            header.set_derived_sections(derived_indices)
 
     def _style_table_item_by_column(self, item: QTableWidgetItem, column_name: str, corrected: bool = False) -> None:
         if column_name in self.app_derived_columns:
@@ -374,6 +417,8 @@ class MainWindow(QMainWindow):
         self.network_time_label = QLabel("Network/time: not checked")
         self.network_time_label.setMinimumWidth(260)
         bottom.addWidget(self.network_time_label)
+        self.export_csv_btn = QPushButton("Export CSV")
+        bottom.addWidget(self.export_csv_btn)
         self.open_output_btn = QPushButton("Open Output Folder")
         bottom.addWidget(self.open_output_btn)
         root.addLayout(bottom)
@@ -473,6 +518,7 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         self.table = QTableWidget(0, len(self.table_columns))
+        self.table.setHorizontalHeader(SourceAwareHeaderView(Qt.Orientation.Horizontal, self.table))
         self._apply_table_headers()
         self.table.setSortingEnabled(True)
         self.table.setAlternatingRowColors(True)
@@ -481,8 +527,12 @@ class MainWindow(QMainWindow):
         self.table.setWordWrap(False)
         self.table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        table_header = self.table.horizontalHeader()
+        table_header.setStretchLastSection(True)
+        table_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        table_header.setSectionsClickable(True)
+        table_header.setSortIndicatorShown(True)
+        table_header.sectionClicked.connect(self._sort_table_by_header_section)
         splitter.addWidget(self.table)
         detail_widget = QWidget()
         detail_layout = QVBoxLayout(detail_widget)
@@ -618,7 +668,12 @@ class MainWindow(QMainWindow):
         self.stop_tts_btn.setEnabled(False)
         self.print_analysis_btn = QPushButton("Print analysis")
         self.copy_analysis_btn = QPushButton("Copy text")
+        self.llm_correction_status_label = QLabel("No LLM table corrections found")
+        self.apply_llm_corrections_btn = QPushButton("Apply LLM-corrected values")
+        self.apply_llm_corrections_btn.setEnabled(False)
         output_row.addStretch(1)
+        output_row.addWidget(self.llm_correction_status_label)
+        output_row.addWidget(self.apply_llm_corrections_btn)
         output_row.addWidget(self.read_analysis_btn)
         output_row.addWidget(self.stop_tts_btn)
         output_row.addWidget(self.copy_analysis_btn)
@@ -770,6 +825,7 @@ class MainWindow(QMainWindow):
         self.followup_edit.returnPressed.connect(self.ask_ollama_followup)
         self.print_analysis_btn.clicked.connect(self.print_analysis)
         self.copy_analysis_btn.clicked.connect(self.copy_analysis_text)
+        self.apply_llm_corrections_btn.clicked.connect(self.apply_pending_llm_table_corrections)
         self.read_analysis_btn.clicked.connect(self.read_analysis_aloud)
         self.stop_tts_btn.clicked.connect(self.stop_tts)
         self.open_3d_btn.clicked.connect(lambda: self.create_visualization(open_after=True))
@@ -779,7 +835,9 @@ class MainWindow(QMainWindow):
         self.output_browse_btn.clicked.connect(self.browse_output_dir)
         self.save_options_btn.clicked.connect(self._save_config)
         self.allow_llm_table_corrections_check.stateChanged.connect(lambda _state: self._refresh_table_preserve_selection())
+        self.allow_llm_table_corrections_check.stateChanged.connect(lambda _state: self._update_llm_correction_button_state())
         self.open_output_btn.clicked.connect(self.open_output_folder)
+        self.export_csv_btn.clicked.connect(self.export_table_csv)
 
     def _apply_texts(self) -> None:
         t = self.translator.t
@@ -806,6 +864,7 @@ class MainWindow(QMainWindow):
         self.list_models_btn.setText(t("list_models"))
         self.open_3d_btn.setText(t("open_3d"))
         self.save_3d_btn.setText(t("save_3d"))
+        self.export_csv_btn.setText(t("export_csv"))
         self.open_output_btn.setText(t("open_output"))
         self.output_browse_btn.setText(t("browse"))
         self._update_network_time_label()
@@ -814,6 +873,7 @@ class MainWindow(QMainWindow):
         self.followup_edit.setPlaceholderText(t("followup_placeholder"))
         self.print_analysis_btn.setText(t("print_analysis"))
         self.copy_analysis_btn.setText(t("copy_analysis_text"))
+        self.apply_llm_corrections_btn.setText(t("apply_llm_corrections"))
         self.read_analysis_btn.setText(t("read_analysis_aloud"))
         self.stop_tts_btn.setText(t("stop_tts"))
         self._set_combo_item_text_by_data(self.tts_scope_combo, "last", t("tts_scope_last"))
@@ -909,11 +969,13 @@ class MainWindow(QMainWindow):
             self.followup_btn: "tip_send_followup",
             self.print_analysis_btn: "tip_print_analysis",
             self.copy_analysis_btn: "tip_copy_analysis",
+            self.apply_llm_corrections_btn: "tip_apply_llm_corrections",
             self.read_analysis_btn: "tip_read_analysis",
             self.stop_tts_btn: "tip_stop_tts",
             self.open_3d_btn: "tip_open_3d",
             self.save_3d_btn: "tip_save_3d",
             self.output_browse_btn: "tip_browse_output",
+            self.export_csv_btn: "tip_export_csv",
             self.open_output_btn: "tip_open_output",
             self.save_options_btn: "tip_save_options",
             self.language_combo: "tip_language",
@@ -1080,12 +1142,55 @@ class MainWindow(QMainWindow):
         return (
             "The GUI table contains CAD/API columns and app-derived columns. "
             "App-derived columns are local calculations and may be checked by you. "
-            "If, and only if, you find a concrete correction or better display value for an app-derived table field, "
-            "append this exact block at the very end of your answer. Use only JSON object keys from this allowed list: "
-            f"{keys}. Do not include commentary inside the block. Values must be short table-display strings.\n"
+            "Treat Risk score as a current-close-approach encounter score, not as a PHA/MOID score. "
+            "Do not create visible recurring sections about CAD/local-simulation limitations or generic verification steps; the GUI has Usage Notes for that. "
+            "Keep any caveat to one or two directly relevant sentences in the main answer. "
+            "If you find a concrete correction or better display value for an app-derived table field, "
+            "append this exact machine-readable block at the very end of your answer. Use only JSON object keys from this allowed list: "
+            f"{keys}. Do not include commentary inside the block. Values must be short table-display strings. "
+            "The app will not apply these automatically; the user must press the manual apply button.\n"
             "<APP_TABLE_CORRECTIONS>{\"Risk score\":\"...\",\"Impact prob. %\":\"...\"}</APP_TABLE_CORRECTIONS>\n"
-            "If no correction is warranted, omit the block completely. The visible answer should still explain your reasoning normally.\n"
+            "If no correction is warranted, still append an empty block exactly like this so the GUI can report that no values were suggested: "
+            "<APP_TABLE_CORRECTIONS>{}</APP_TABLE_CORRECTIONS>\n"
         )
+
+    def _clean_ollama_visible_text(self, text: str) -> str:
+        """Remove recurring boilerplate sections that belong in Usage Notes, not the main analysis."""
+        if not text:
+            return text
+        blocked_terms = (
+            "grenzen der lokalen simulation",
+            "cad-daten",
+            "schritte zur verifizierung",
+            "verifizierung",
+            "verification steps",
+            "steps for verification",
+            "scientific limitation",
+            "scientific limitations",
+            "limitations of cad",
+            "limitations of local simulation",
+            "local simulation limitations",
+            "cad and local simulation",
+            "authoritative risk assessment",
+        )
+        lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        kept: list[str] = []
+        skipping = False
+        for line in lines:
+            stripped = line.strip()
+            is_heading = bool(re.match(r"^#{1,6}\s+", stripped)) or bool(re.match(r"^\*\*[^*]+\*\*\s*$", stripped))
+            lowered = re.sub(r"^[#*\s]+|[*\s:]+$", "", stripped).lower()
+            should_skip = is_heading and any(term in lowered for term in blocked_terms)
+            if should_skip:
+                skipping = True
+                continue
+            if skipping and is_heading:
+                skipping = False
+            if not skipping:
+                kept.append(line)
+        cleaned = "\n".join(kept).strip()
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned or text.strip()
 
     def _extract_llm_table_corrections(self, text: str) -> tuple[str, dict[str, str]]:
         if not text:
@@ -1093,7 +1198,8 @@ class MainWindow(QMainWindow):
         pattern = re.compile(r"<APP_TABLE_CORRECTIONS>\s*(\{.*?\})\s*</APP_TABLE_CORRECTIONS>", re.DOTALL | re.IGNORECASE)
         match = pattern.search(text)
         if not match:
-            return text, {}
+            self._set_llm_correction_status("none")
+            return self._clean_ollama_visible_text(text), {}
         visible = (text[:match.start()] + text[match.end():]).strip()
         corrections: dict[str, str] = {}
         try:
@@ -1104,18 +1210,72 @@ class MainWindow(QMainWindow):
                         corrections[str(key)] = str(value).strip()[:120]
         except Exception:
             corrections = {}
-        return visible, corrections
+        if not corrections:
+            self._set_llm_correction_status("none")
+        return self._clean_ollama_visible_text(visible), corrections
+
+    def _set_llm_correction_status(self, state: str, count: int = 0) -> None:
+        if not hasattr(self, "llm_correction_status_label"):
+            return
+        if not self.allow_llm_table_corrections_check.isChecked():
+            self.llm_correction_status_label.setText(self.translator.t("llm_corrections_disabled_short"))
+        elif state == "pending":
+            self.llm_correction_status_label.setText(self.translator.t("llm_corrections_pending_short").format(count=count))
+        elif state == "applied":
+            self.llm_correction_status_label.setText(self.translator.t("llm_corrections_applied_short"))
+        else:
+            self.llm_correction_status_label.setText(self.translator.t("llm_no_corrections_short"))
 
     def _apply_llm_table_corrections(self, record: CadRecord | None, corrections: dict[str, str]) -> None:
-        if record is None or not corrections or not self.allow_llm_table_corrections_check.isChecked():
+        # Store as pending review items. They are applied only after the user presses the explicit button.
+        if record is None or not self.allow_llm_table_corrections_check.isChecked():
+            self._set_llm_correction_status("disabled")
             return
         clean = {k: v for k, v in corrections.items() if k in self.llm_correctable_columns and v}
         if not clean:
+            self._set_llm_correction_status("none")
+            self._update_llm_correction_button_state()
             return
         key = self._record_key(record)
+        self.pending_llm_table_corrections[key] = clean
+        self._update_llm_correction_button_state()
+        self._set_llm_correction_status("pending", len(clean))
+        self._set_status(self.translator.t("status_llm_table_corrections_pending").format(count=len(clean)))
+
+    def _update_llm_correction_button_state(self) -> None:
+        enabled = bool(getattr(self, "pending_llm_table_corrections", {})) and self.allow_llm_table_corrections_check.isChecked()
+        if hasattr(self, "apply_llm_corrections_btn"):
+            self.apply_llm_corrections_btn.setEnabled(enabled)
+        if hasattr(self, "llm_correction_status_label"):
+            if not self.allow_llm_table_corrections_check.isChecked():
+                self._set_llm_correction_status("disabled")
+            elif enabled:
+                count = sum(len(v) for v in getattr(self, "pending_llm_table_corrections", {}).values())
+                self._set_llm_correction_status("pending", count)
+            elif not getattr(self, "llm_table_corrections", {}):
+                self._set_llm_correction_status("none")
+
+    def apply_pending_llm_table_corrections(self) -> None:
+        if not self.allow_llm_table_corrections_check.isChecked():
+            QMessageBox.information(self, self.translator.t("llm_corrections_disabled_title"), self.translator.t("llm_corrections_disabled_message"))
+            return
+        if not self.pending_llm_table_corrections:
+            QMessageBox.information(self, self.translator.t("llm_no_pending_corrections_title"), self.translator.t("llm_no_pending_corrections"))
+            self._update_llm_correction_button_state()
+            return
+        record = self.selected_record()
+        key = self._record_key(record) if record else None
+        if key not in self.pending_llm_table_corrections and len(self.pending_llm_table_corrections) == 1:
+            key = next(iter(self.pending_llm_table_corrections.keys()))
+        if not key or key not in self.pending_llm_table_corrections:
+            QMessageBox.information(self, self.translator.t("llm_no_pending_corrections_title"), self.translator.t("llm_no_pending_corrections_for_selection"))
+            return
+        clean = self.pending_llm_table_corrections.pop(key)
         existing = self.llm_table_corrections.setdefault(key, {})
         existing.update(clean)
         self._refresh_table_preserve_selection(key)
+        self._update_llm_correction_button_state()
+        self._set_llm_correction_status("applied")
         self._set_status(self.translator.t("status_llm_table_corrections_applied"))
 
     def _refresh_table_preserve_selection(self, record_key: str | None = None) -> None:
@@ -1415,6 +1575,8 @@ class MainWindow(QMainWindow):
             "Column source/context note:\n"
             "- CAD/API columns come directly from the parsed CAD payload or direct unit conversions of CAD fields.\n"
             "- App-derived columns are computed locally by this GUI from visible CAD values and simple formulas; they should be treated as inspectable derived context, not unchangeable API facts.\n"
+            "- Risk score is a current-close-approach encounter score based mainly on nominal miss distance, object size, speed, and an uncertainty modifier. It is not a MOID/PHA long-term orbital hazard score.\n"
+            "- Impact probability/proxy is 0 if the CAD lower distance bound remains outside the target-body radius; wide uncertainty alone should not be treated as impact probability.\n"
             "- If an app-derived value appears inconsistent, recalculate/check it and use the correction block if enabled.\n\n"
             + self._table_correction_prompt_instruction()
         )
@@ -1518,6 +1680,20 @@ class MainWindow(QMainWindow):
         except ValueError:
             return -1
 
+    def _sort_table_by_header_section(self, section: int) -> None:
+        if section < 0 or section >= self.table.columnCount():
+            return
+        header = self.table.horizontalHeader()
+        if self._manual_sort_column == section and self._manual_sort_order == Qt.SortOrder.AscendingOrder:
+            order = Qt.SortOrder.DescendingOrder
+        else:
+            order = Qt.SortOrder.AscendingOrder
+        self._manual_sort_column = section
+        self._manual_sort_order = order
+        self.table.sortItems(section, order)
+        header.setSortIndicator(section, order)
+        self.update_detail_from_selection()
+
     def _record_by_object_date(self, object_text: str, date_text: str) -> CadRecord | None:
         object_text = object_text.strip()
         date_text = date_text.strip()
@@ -1530,16 +1706,43 @@ class MainWindow(QMainWindow):
         return None
 
     def _local_risk_score(self, record: CadRecord) -> int | None:
-        min_ld = record.min_distance_ld or record.distance_ld
-        if min_ld is None:
+        # Current close-approach encounter score, not a PHA/MOID classification.
+        # Use nominal miss distance as the main proximity term. The CAD min/max interval
+        # is treated only as an uncertainty modifier so a very wide interval does not
+        # incorrectly turn a distant nominal flyby into an acute risk.
+        nominal_ld = record.distance_ld
+        if nominal_ld is None:
             return None
+        min_ld = record.min_distance_ld if record.min_distance_ld is not None else nominal_ld
         _, nominal_d, high_d = record.estimated_diameter_range_km()
         size_m = (nominal_d or high_d or 0.0) * 1000.0
         v = record.v_rel_kms or 0.0
-        distance_score = max(0.0, min(55.0, (20.0 - min(min_ld, 20.0)) / 20.0 * 55.0))
-        size_score = max(0.0, min(30.0, size_m / 140.0 * 30.0))
-        speed_score = max(0.0, min(15.0, v / 30.0 * 15.0))
-        return int(round(distance_score + size_score + speed_score))
+
+        if nominal_ld <= 1.0:
+            distance_score = 45.0
+        elif nominal_ld <= 5.0:
+            distance_score = 45.0 - ((nominal_ld - 1.0) / 4.0) * 20.0
+        elif nominal_ld <= 20.0:
+            distance_score = 25.0 - ((nominal_ld - 5.0) / 15.0) * 20.0
+        else:
+            distance_score = max(0.0, 5.0 - min((nominal_ld - 20.0) / 80.0 * 5.0, 5.0))
+
+        size_score = max(0.0, min(25.0, size_m / 140.0 * 25.0))
+        speed_score = max(0.0, min(10.0, v / 30.0 * 10.0))
+
+        uncertainty_score = 0.0
+        if min_ld is not None and min_ld < nominal_ld:
+            if min_ld <= 1.0:
+                uncertainty_score += 15.0
+            elif min_ld <= 5.0:
+                uncertainty_score += 15.0 - ((min_ld - 1.0) / 4.0) * 10.0
+            elif min_ld <= 20.0:
+                uncertainty_score += 5.0 - ((min_ld - 5.0) / 15.0) * 5.0
+        span = self._distance_span_km(record)
+        if span is not None and record.distance_km:
+            uncertainty_score += max(0.0, min(5.0, (span / max(record.distance_km, 1.0)) * 2.0))
+
+        return int(round(max(0.0, min(100.0, distance_score + size_score + speed_score + uncertainty_score))))
 
     def _body_radius_km(self, record: CadRecord) -> float | None:
         return BODY_RADIUS_KM.get(record.body_code)
@@ -1592,6 +1795,13 @@ class MainWindow(QMainWindow):
         mn = self._min_distance_km(record)
         mx = self._max_distance_km(record)
         if mn is not None and mx is not None and mx >= mn:
+            # If even the CAD lower bound misses the body by more than its radius,
+            # the encounter interval does not support a local impact proxy. Return 0
+            # rather than a misleading Gaussian tail from a very wide uncertainty span.
+            if mn > radius:
+                return 0.0
+            if mx <= radius:
+                return 1.0
             sigma = max((mx - mn) / 6.0, 0.0)
             if sigma > 0:
                 z = (radius - nominal) / sigma
@@ -2320,7 +2530,7 @@ class MainWindow(QMainWindow):
             return
         def retry_followup() -> None:
             self.followup_edit.setText(question)
-            self.send_followup()
+            self.ask_ollama_followup()
         if self._is_ollama_connection_error(message):
             self._show_ollama_unavailable_dialog(message, retry_callback=retry_followup)
         else:
@@ -2415,6 +2625,33 @@ class MainWindow(QMainWindow):
         if selected:
             self.output_path_edit.setText(selected)
             self.output_dir = Path(selected)
+
+
+    def export_table_csv(self) -> None:
+        if not hasattr(self, "table") or self.table.rowCount() == 0:
+            QMessageBox.information(self, self.translator.t("export_csv_no_data_title"), self.translator.t("export_csv_no_data"))
+            return
+        default_dir = Path(self.output_path_edit.text()).expanduser()
+        default_dir.mkdir(parents=True, exist_ok=True)
+        default_name = default_dir / f"jpl_cad_table_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        path, _filter = QFileDialog.getSaveFileName(
+            self,
+            self.translator.t("export_csv_dialog_title"),
+            str(default_name),
+            "CSV files (*.csv);;All files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            headers = [self.table.horizontalHeaderItem(col).text() if self.table.horizontalHeaderItem(col) else self.table_columns[col] for col in range(self.table.columnCount())]
+            with open(path, "w", encoding="utf-8-sig", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(headers)
+                for row in range(self.table.rowCount()):
+                    writer.writerow([self.table.item(row, col).text() if self.table.item(row, col) else "" for col in range(self.table.columnCount())])
+            self._set_status(self.translator.t("status_csv_exported").format(path=path))
+        except Exception as exc:
+            self._worker_failed(f"{exc}\n\n{traceback.format_exc()}")
 
     def open_output_folder(self) -> None:
         path = Path(self.output_path_edit.text()).expanduser()
