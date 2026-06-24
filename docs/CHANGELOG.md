@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.1.31
+
+- Data table: Reworked the former satellite-only note into a broader spacecraft/probe context field.
+- Spacecraft context: Added an editable local `data/spacecraft_regions.json` catalog of approximate artificial-object regions, including Earth satellite shells, cislunar space, Sun-Earth L1/L2 distance shells, lunar mission regions and selected planet-orbiter system shells.
+- Analysis context: Ollama now receives the local spacecraft/probe-region catalog match details and is instructed to treat them as broad screening context, not as live ephemeris/conjunction proof.
+- Options: Added a toggle for enabling or disabling the local spacecraft/probe context catalog.
+- Usage Notes: Added localized explanation of the spacecraft/probe context field and its limits.
+- Documentation: Updated README to version 0.1.31 and documented the local catalog file.
+
+## 0.1.30 - 2026-06-24
+
+- Ollama: Fixed a possible HTTP 400 Bad Request on `/api/generate` caused by incompatible `keep_alive` values on some Ollama versions.
+- Ollama: The keep-alive request now uses the broadly compatible duration string `24h`; explicit unload uses `keep_alive: "0"`.
+- Ollama: If a build rejects keep_alive, the client retries the same generate request once without keep_alive instead of failing immediately.
+- Diagnostics: HTTP errors from Ollama now include the response body when available, making future 400-level errors easier to identify.
+- Documentation: Updated README to version 0.1.30.
+
+## 0.1.29 - 2026-06-24
+
+- Installer: The suggested shared PythonDepot/cache path is now automatically accepted after a 10-second timeout unless the user types another path.
+- Installer: The selected depot/cache path is saved for subsequent setup actions such as the wheelhouse build.
+- Installer: The normal install flow now offers to build/update the offline wheelhouse automatically after a 10-second skip window.
+- Installer: build_wheelhouse_windows.bat now supports automated invocation without pausing at the end.
+- Documentation: Updated README to version 0.1.29 and documented the timeout-based installer defaults.
+
+## 0.1.28 - 2026-06-24
+
+- Ollama performance: Added a keep-alive option so the selected local model can remain loaded between analyses and follow-up questions, reducing repeated cold-load delays.
+- Options: Added a manual button to unload the selected Ollama model from RAM/VRAM when memory should be released.
+- Shutdown: When model keep-alive is enabled, the app asks Ollama to unload the selected model while closing.
+- Themes: Added the new Aurora theme with dark polar-light colors and teal/violet highlights.
+- 3D visualization: Added Aurora palette support for generated HTML visualizations.
+- Usage Notes: Added a localized note explaining Ollama model memory/keep-alive behavior.
+- Documentation: Updated README to version 0.1.28 and kept it publication-oriented.
+
 ## 0.1.27 - 2026-06-23
 
 - Ollama: Prompt now tells local models to keep long recurring CAD/simulation limitation and generic verification sections out of the main analysis text; these belong in Usage Notes.

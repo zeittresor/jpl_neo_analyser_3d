@@ -59,6 +59,7 @@ from .constants import AU_KM, BODY_CODES, BODY_DISPLAY, BODY_RADIUS_KM, ORBIT_CL
 from .i18n import Translator
 from .network_status import NetworkTimeStatus, check_network_time
 from .simulator import SimulationSettings, simulate_close_approach
+from .spacecraft_context import SpacecraftRegion, load_regions
 from .theme_manager import ThemeManager
 from .visualization import create_visualization_html, open_html
 
@@ -280,6 +281,7 @@ class MainWindow(QMainWindow):
         self.countdown_timer.setInterval(1000)
         self.countdown_timer.timeout.connect(self._update_countdown_label)
         self.network_time_status: NetworkTimeStatus | None = None
+        self.spacecraft_regions: list[SpacecraftRegion] = load_regions(self.root_dir)
         self.network_time_worker: Worker | None = None
         self.network_time_timer = QTimer(self)
         self.network_time_timer.setInterval(30 * 60 * 1000)
@@ -771,10 +773,15 @@ class MainWindow(QMainWindow):
         self.assessment_mode_combo.addItem("Scientific assessment", "assessment")
         self.assessment_mode_combo.addItem("Exploratory what-if assessment", "exploratory")
         self.assessment_mode_combo.setCurrentIndex(1)
+        self.keep_ollama_loaded_check = QCheckBox("Keep selected Ollama model loaded between requests")
+        self.keep_ollama_loaded_check.setChecked(True)
+        self.unload_ollama_model_btn = QPushButton("Unload Ollama model from memory")
         self.heuristic_notes_check = QCheckBox("Show local-computed / heuristic notes")
         self.heuristic_notes_check.setChecked(False)
         self.allow_llm_table_corrections_check = QCheckBox("Allow Ollama to correct app-derived table fields")
         self.allow_llm_table_corrections_check.setChecked(True)
+        self.spacecraft_context_check = QCheckBox("Use local spacecraft/probe context catalog")
+        self.spacecraft_context_check.setChecked(True)
         self.ollama_disclaimer_check = QCheckBox("Include scientific limitation notes in Ollama output")
         self.ollama_disclaimer_check.setChecked(True)
         self.visualization_disclaimer_check = QCheckBox("Include scientific limitation notice in 3D HTML")
@@ -785,8 +792,11 @@ class MainWindow(QMainWindow):
         form.addRow(self._label("label_tts_scope", "Read aloud scope"), self.tts_scope_combo)
         form.addRow(self._label("label_texture_mode", "3D object textures"), self.texture_mode_combo)
         form.addRow(self._label("label_assessment_mode", "LLM assessment mode"), self.assessment_mode_combo)
+        form.addRow("", self.keep_ollama_loaded_check)
+        form.addRow(self._label("label_ollama_memory", "Ollama memory"), self.unload_ollama_model_btn)
         form.addRow("", self.heuristic_notes_check)
         form.addRow("", self.allow_llm_table_corrections_check)
+        form.addRow("", self.spacecraft_context_check)
         form.addRow("", self.ollama_disclaimer_check)
         form.addRow("", self.visualization_disclaimer_check)
         layout.addWidget(box)
@@ -834,8 +844,10 @@ class MainWindow(QMainWindow):
         self.language_combo.currentIndexChanged.connect(self.change_language)
         self.output_browse_btn.clicked.connect(self.browse_output_dir)
         self.save_options_btn.clicked.connect(self._save_config)
+        self.unload_ollama_model_btn.clicked.connect(self.unload_ollama_model)
         self.allow_llm_table_corrections_check.stateChanged.connect(lambda _state: self._refresh_table_preserve_selection())
         self.allow_llm_table_corrections_check.stateChanged.connect(lambda _state: self._update_llm_correction_button_state())
+        self.spacecraft_context_check.stateChanged.connect(lambda _state: self._refresh_table_preserve_selection())
         self.open_output_btn.clicked.connect(self.open_output_folder)
         self.export_csv_btn.clicked.connect(self.export_table_csv)
 
@@ -874,6 +886,7 @@ class MainWindow(QMainWindow):
         self.print_analysis_btn.setText(t("print_analysis"))
         self.copy_analysis_btn.setText(t("copy_analysis_text"))
         self.apply_llm_corrections_btn.setText(t("apply_llm_corrections"))
+        self.unload_ollama_model_btn.setText(t("unload_ollama_model"))
         self.read_analysis_btn.setText(t("read_analysis_aloud"))
         self.stop_tts_btn.setText(t("stop_tts"))
         self._set_combo_item_text_by_data(self.tts_scope_combo, "last", t("tts_scope_last"))
@@ -884,8 +897,10 @@ class MainWindow(QMainWindow):
         self._set_combo_item_text_by_data(self.assessment_mode_combo, "facts", t("assessment_mode_facts"))
         self._set_combo_item_text_by_data(self.assessment_mode_combo, "assessment", t("assessment_mode_scientific"))
         self._set_combo_item_text_by_data(self.assessment_mode_combo, "exploratory", t("assessment_mode_exploratory"))
+        self.keep_ollama_loaded_check.setText(t("keep_ollama_loaded"))
         self.heuristic_notes_check.setText(t("include_heuristic_notes"))
         self.allow_llm_table_corrections_check.setText(t("allow_llm_table_corrections"))
+        self.spacecraft_context_check.setText(t("include_spacecraft_context"))
         self.ollama_disclaimer_check.setText(t("include_ollama_disclaimer"))
         self.visualization_disclaimer_check.setText(t("include_visualization_disclaimer"))
 
@@ -987,6 +1002,8 @@ class MainWindow(QMainWindow):
             self.heuristic_notes_check: "tip_include_heuristic_notes",
             self.allow_llm_table_corrections_check: "tip_allow_llm_table_corrections",
             self.assessment_mode_combo: "tip_assessment_mode",
+            self.keep_ollama_loaded_check: "tip_keep_ollama_loaded",
+            self.unload_ollama_model_btn: "tip_unload_ollama_model",
             self.context_slider: "tip_context_length",
             self.num_ctx_spin: "tip_context_length",
         }
@@ -1131,9 +1148,10 @@ class MainWindow(QMainWindow):
             f"3-sigma distance span km: {computed.get('3σ span km', 'n/a')}",
             f"Miss distance in body radii: {computed.get('Miss radii', 'n/a')}",
             f"Kinetic energy estimate Mt TNT: {computed.get('Energy Mt TNT', 'n/a')}",
-            f"Satellite relevance note: {computed.get('Satellite note', 'n/a')}",
+            f"Spacecraft/probe context note: {computed.get('Satellite note', 'n/a')}",
         ]
-        return "\n".join([self._network_context_for_prompt(), ""] + record.summary_lines() + ["", "Visible computed columns:"] + computed_lines + ["", "Table correction instruction:", self._table_correction_prompt_instruction()])
+        spacecraft_context = self._spacecraft_context_prompt_lines(record)
+        return "\n".join([self._network_context_for_prompt(), ""] + record.summary_lines() + ["", "Visible computed columns:"] + computed_lines + ["", "Local spacecraft/probe-region catalog context:"] + spacecraft_context + ["", "Table correction instruction:", self._table_correction_prompt_instruction()])
 
     def _table_correction_prompt_instruction(self) -> str:
         if not self.allow_llm_table_corrections_check.isChecked():
@@ -1141,7 +1159,7 @@ class MainWindow(QMainWindow):
         keys = ", ".join(sorted(self.llm_correctable_columns))
         return (
             "The GUI table contains CAD/API columns and app-derived columns. "
-            "App-derived columns are local calculations and may be checked by you. "
+            "App-derived columns are local calculations and may be checked by you. The Spacecraft context/Satellite note field may include a local approximate artificial-space-object region-catalog check for satellites, probes, planet orbiters, cislunar missions and Lagrange-region shells; it is not live ephemeris matching. "
             "Treat Risk score as a current-close-approach encounter score, not as a PHA/MOID score. "
             "Do not create visible recurring sections about CAD/local-simulation limitations or generic verification steps; the GUI has Usage Notes for that. "
             "Keep any caveat to one or two directly relevant sentences in the main answer. "
@@ -1569,7 +1587,7 @@ class MainWindow(QMainWindow):
             f"- 3-sigma distance span km: {computed.get('3σ span km', 'n/a')}\n"
             f"- Miss distance in target-body radii: {computed.get('Miss radii', 'n/a')}\n"
             f"- Approximate kinetic energy Mt TNT: {computed.get('Energy Mt TNT', 'n/a')}\n"
-            f"- Satellite relevance note: {computed.get('Satellite note', 'n/a')}\n"
+            f"- Spacecraft/probe context note: {computed.get('Satellite note', 'n/a')}\n"
             f"- LLM assessment mode: {mode}\n"
             f"- User wants explicit heuristic/local-computed notes: {show_heuristics}\n\n"
             "Column source/context note:\n"
@@ -1823,17 +1841,79 @@ class MainWindow(QMainWindow):
             return "<0.000001"
         return f"{percent:.6f}"
 
+    def _record_distance_interval_km(self, record: CadRecord) -> tuple[float, float] | None:
+        nominal = record.distance_km
+        mn = self._min_distance_km(record)
+        mx = self._max_distance_km(record)
+        if mn is not None and mx is not None:
+            return (min(mn, mx), max(mn, mx))
+        if nominal is not None:
+            return (nominal, nominal)
+        return None
+
+    def _matching_spacecraft_regions(self, record: CadRecord) -> tuple[list[SpacecraftRegion], SpacecraftRegion | None]:
+        interval = self._record_distance_interval_km(record)
+        if interval is None or not getattr(self, "spacecraft_context_check", None) or not self.spacecraft_context_check.isChecked():
+            return ([], None)
+        min_km, max_km = interval
+        candidates = [r for r in self.spacecraft_regions if r.body_code == record.body_code]
+        matches = [r for r in candidates if r.overlaps(min_km, max_km)]
+        nearest = None
+        if candidates:
+            nearest = min(candidates, key=lambda r: r.distance_to_interval(min_km, max_km))
+        return (matches, nearest)
+
     def _satellite_note_text(self, record: CadRecord) -> str:
-        if record.body_code != "Earth" or record.distance_km is None:
-            return self.translator.t("satellite_note_not_applicable")
-        d = record.distance_km
-        if d <= 50000:
-            return self.translator.t("satellite_note_geo_relevant")
-        if d <= 100000:
-            return self.translator.t("satellite_note_above_geo")
-        if d <= 450000:
-            return self.translator.t("satellite_note_cislunar")
-        return self.translator.t("satellite_note_low")
+        if not getattr(self, "spacecraft_context_check", None) or not self.spacecraft_context_check.isChecked():
+            # Backward-compatible compact Earth-only note if the richer catalog is disabled.
+            if record.body_code != "Earth" or record.distance_km is None:
+                return self.translator.t("satellite_note_not_applicable")
+            d = record.distance_km
+            if d <= 50000:
+                return self.translator.t("satellite_note_geo_relevant")
+            if d <= 100000:
+                return self.translator.t("satellite_note_above_geo")
+            if d <= 450000:
+                return self.translator.t("satellite_note_cislunar")
+            return self.translator.t("satellite_note_low")
+
+        if record.distance_km is None:
+            return self.translator.t("spacecraft_note_no_distance")
+        matches, nearest = self._matching_spacecraft_regions(record)
+        if matches:
+            labels = "; ".join(region.label for region in matches[:2])
+            if len(matches) > 2:
+                labels += f" +{len(matches) - 2}"
+            return self.translator.t("spacecraft_note_region_overlap").format(regions=labels)
+        if nearest is not None:
+            return self.translator.t("spacecraft_note_no_overlap_nearest").format(region=nearest.label)
+        return self.translator.t("spacecraft_note_no_catalog")
+
+    def _spacecraft_context_prompt_lines(self, record: CadRecord) -> list[str]:
+        if not getattr(self, "spacecraft_context_check", None) or not self.spacecraft_context_check.isChecked():
+            return ["Local spacecraft/probe catalog disabled by user."]
+        interval = self._record_distance_interval_km(record)
+        if interval is None:
+            return ["No distance interval available for spacecraft/probe context."]
+        min_km, max_km = interval
+        matches, nearest = self._matching_spacecraft_regions(record)
+        lines = [
+            "The app has a local approximate artificial-space-object region catalog.",
+            "This is not a live ephemeris database and does not prove a conjunction; it only checks whether the CAD body-centered miss-distance interval overlaps broad radial shells where spacecraft/probes may operate.",
+            f"CAD body-centered distance interval used for this check: {min_km:,.0f} km to {max_km:,.0f} km.",
+        ]
+        if matches:
+            lines.append("Overlapping catalog regions:")
+            for region in matches[:6]:
+                examples = ", ".join(region.examples[:4]) if region.examples else "no examples listed"
+                lines.append(f"- {region.label}: {region.min_km:,.0f}-{region.max_km:,.0f} km from {region.body_code}; category={region.category}; examples={examples}; note={region.note or 'radial shell only'}")
+        elif nearest is not None:
+            examples = ", ".join(nearest.examples[:4]) if nearest.examples else "no examples listed"
+            lines.append(f"No overlap with a catalog shell. Nearest catalog region: {nearest.label} ({nearest.min_km:,.0f}-{nearest.max_km:,.0f} km from {nearest.body_code}; examples={examples}).")
+        else:
+            lines.append(f"No spacecraft/probe region catalog entries exist for body code {record.body_code}.")
+        lines.append("If you discuss spacecraft relevance, mention this as broad context only and recommend live ephemeris/TLE/SPICE checks for real mission risk.")
+        return lines
 
     def _computed_values_for_record(self, record: CadRecord) -> dict[str, str]:
         score = self._local_risk_score(record)
@@ -1897,12 +1977,14 @@ class MainWindow(QMainWindow):
             txidx = self.texture_mode_combo.findData(texture_mode)
             if txidx >= 0:
                 self.texture_mode_combo.setCurrentIndex(txidx)
+            self.keep_ollama_loaded_check.setChecked(bool(data.get("keep_ollama_loaded", True)))
             mode = data.get("assessment_mode", "assessment")
             midx = self.assessment_mode_combo.findData(mode)
             if midx >= 0:
                 self.assessment_mode_combo.setCurrentIndex(midx)
             self.heuristic_notes_check.setChecked(bool(data.get("include_heuristic_notes", False)))
             self.allow_llm_table_corrections_check.setChecked(bool(data.get("allow_llm_table_corrections", True)))
+            self.spacecraft_context_check.setChecked(bool(data.get("include_spacecraft_context", True)))
             self.ollama_disclaimer_check.setChecked(bool(data.get("include_ollama_disclaimer", True)))
             self.visualization_disclaimer_check.setChecked(bool(data.get("include_visualization_disclaimer", False)))
             self.output_path_edit.setText(data.get("output_dir", self.output_path_edit.text()))
@@ -1931,8 +2013,10 @@ class MainWindow(QMainWindow):
             "tts_scope": self.tts_scope_combo.currentData(),
             "visualization_texture_mode": self.texture_mode_combo.currentData(),
             "assessment_mode": self.assessment_mode_combo.currentData(),
+            "keep_ollama_loaded": self.keep_ollama_loaded_check.isChecked(),
             "include_heuristic_notes": self.heuristic_notes_check.isChecked(),
             "allow_llm_table_corrections": self.allow_llm_table_corrections_check.isChecked(),
+            "include_spacecraft_context": self.spacecraft_context_check.isChecked(),
             "include_ollama_disclaimer": self.ollama_disclaimer_check.isChecked(),
             "include_visualization_disclaimer": self.visualization_disclaimer_check.isChecked(),
             "theme": self.theme_combo.currentData(),
@@ -2289,6 +2373,57 @@ class MainWindow(QMainWindow):
         self.comet_check.setChecked(False)
         self.sort_combo.setCurrentText("date")
 
+    def _ollama_keep_alive_value(self) -> str:
+        # Use duration strings for broad Ollama compatibility. Older Ollama
+        # builds may reject integer/negative keep_alive values with HTTP 400.
+        # 24h keeps interactive follow-ups warm without relying on unsupported
+        # indefinite-residency syntax; unloading still uses keep_alive="0".
+        return "24h" if self.keep_ollama_loaded_check.isChecked() else "0"
+
+    def unload_ollama_model(self) -> None:
+        model = self.ollama_model_combo.currentText().strip()
+        if not model:
+            QMessageBox.information(self, self.translator.t("unload_ollama_no_model_title"), self.translator.t("unload_ollama_no_model"))
+            return
+        self.unload_ollama_model_btn.setEnabled(False)
+        self._set_status(self.translator.t("status_ollama_unloading").format(model=model))
+
+        def job() -> str:
+            client = OllamaClient(self.ollama_url_edit.text().strip(), timeout_seconds=10)
+            client.unload_model(model)
+            return model
+
+        worker: Worker = Worker(job)
+        self.current_worker = worker
+        worker.finished_ok.connect(lambda unloaded_model: self._ollama_model_unloaded(str(unloaded_model)))
+        worker.failed.connect(lambda message: self._ollama_unload_failed(str(message)))
+        worker.finished.connect(lambda: self.unload_ollama_model_btn.setEnabled(True))
+        worker.start()
+
+    def _ollama_model_unloaded(self, model: str) -> None:
+        self._set_status(self.translator.t("status_ollama_model_unloaded").format(model=model))
+
+    def _ollama_unload_failed(self, message: str) -> None:
+        self._set_status(self.translator.t("status_ollama_unload_failed"))
+        if self._is_ollama_connection_error(message):
+            self._show_ollama_unavailable_dialog(message, retry_callback=self.unload_ollama_model)
+        else:
+            self._worker_failed(message)
+
+    def _unload_ollama_model_on_close(self) -> None:
+        model = self.ollama_model_combo.currentText().strip()
+        if not model or not self.keep_ollama_loaded_check.isChecked():
+            return
+        try:
+            OllamaClient(self.ollama_url_edit.text().strip(), timeout_seconds=5).unload_model(model)
+        except Exception:
+            # Do not block shutdown or show a traceback during application exit.
+            pass
+
+    def closeEvent(self, event) -> None:  # noqa: N802 - Qt override name
+        self._unload_ollama_model_on_close()
+        super().closeEvent(event)
+
     def list_ollama_models(self) -> None:
         self._set_status("Listing Ollama models...")
         self.list_models_btn.setEnabled(False)
@@ -2392,6 +2527,7 @@ class MainWindow(QMainWindow):
                 prompt,
                 temperature=float(self.temperature_spin.value()),
                 num_ctx=int(self.num_ctx_spin.value()),
+                keep_alive=self._ollama_keep_alive_value(),
             )
 
         worker: Worker = Worker(job)
@@ -2515,6 +2651,7 @@ class MainWindow(QMainWindow):
                 prompt,
                 temperature=float(self.temperature_spin.value()),
                 num_ctx=int(self.num_ctx_spin.value()),
+                keep_alive=self._ollama_keep_alive_value(),
             )
 
         worker: Worker = Worker(job)

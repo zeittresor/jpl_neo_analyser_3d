@@ -4,22 +4,13 @@ A local-first Python/PyQt6 desktop application for querying NASA/JPL SBDB Close 
 
 Original source / updates: `github.com/zeittresor`
 
-Version: `0.1.27`
+Version: `0.1.31`
 
 ## Purpose
 
 JPL CAD Ollama Explorer is intended as an accessible desktop front end for the NASA/JPL CAD API. It helps users inspect close-approach records, convert key values into practical units, create local visualizations, and ask a locally running Ollama model for an explanatory assessment of the selected record.
 
 The application is designed for educational, exploratory, and technical analysis workflows. It is not an official NASA/JPL tool and must not be used as an authoritative impact-risk predictor.
-
-
-<img width="2560" height="1039" alt="llm_1" src="https://github.com/user-attachments/assets/5c78ec4c-a9ae-42ae-9679-6575fd4a82b4" />
-
-<img width="2560" height="1035" alt="llm_2a" src="https://github.com/user-attachments/assets/da66daad-207e-4754-843f-1fbf89afcfb7" />
-
-<img width="2560" height="1041" alt="llm_2b" src="https://github.com/user-attachments/assets/237e2c16-8b64-4715-8466-bcf0e9e4f0c1" />
-
-<img width="1507" height="675" alt="llm_3" src="https://github.com/user-attachments/assets/3bc5645f-dc2b-4249-802c-ab5c1c963552" />
 
 ## Main features
 
@@ -30,7 +21,7 @@ The application is designed for educational, exploratory, and technical analysis
 - Visually mark app-derived table columns separately from CAD/API columns and highlight manually applied LLM-corrected display values.
 - Visually distinguish app-derived table columns from direct CAD/API columns using differently colored headers and cell styling.
 - Show the close-approach countdown directly in the table and in the selected-record detail panel.
-- Show additional compact columns for current-encounter scoring, local impact-probability/proxy values when the available interval actually overlaps the target-body radius, approximate energy context, and rough satellite-relevance context.
+- Show additional compact columns for current-encounter scoring, local impact-probability/proxy values when the available interval actually overlaps the target-body radius, approximate energy context, and rough spacecraft/probe context.
 - Load the last successful CAD result from a local cache on startup, automatically create an initial cache snapshot on first launch when no cache exists, and fall back to cache if a live CAD request fails later.
 - Compare newly fetched CAD records with the previous cached fetch and show whether selected values are new, unchanged, or changed.
 - Perform a lightweight public-NTP time/network check and pass that time/connectivity context to Ollama prompts.
@@ -48,6 +39,7 @@ The application is designed for educational, exploratory, and technical analysis
 - View Ollama responses in a formatted Markdown-like analysis pane with headings, emphasis, lists, and code blocks.
 - Copy or print the formatted analysis output.
 - Export the visible table as CSV.
+- Add local spacecraft/probe context using an approximate editable catalog of artificial-object regions beyond Earth orbit, including cislunar, Lagrange-distance and selected planet-orbiter shells.
 - Optionally read the latest answer or the full visible analysis aloud using Windows text-to-speech with Markdown formatting markers removed from spoken output.
 - Use a localized Usage Notes tab for explanations of compact table values such as local impact-probability/proxy logic, derived scientific context fields, local risk scoring, satellite context, NTP time/network status, and LLM interpretation modes.
 - Optionally suppress repeated educational/scientific limitation notes in Ollama responses and generated 3D HTML output.
@@ -55,10 +47,11 @@ The application is designed for educational, exploratory, and technical analysis
 - Choose whether local-computed/heuristic notes are explicitly shown or kept terse.
 - Start maximized by default and use Ocean as the default theme on a fresh configuration.
 - Switch between English, German, French, and Russian UI language files.
-- Switch between bundled themes: Light, Dark, Sepia, Ocean, Matrix, Hellfire, and Purple.
+- Switch between bundled themes: Light, Dark, Sepia, Ocean, Matrix, Hellfire, Purple, and Aurora.
 - Choose flat colors, simple procedural textures, or enhanced procedural textures for generated 3D scenes.
 - Use localized tooltips for the main controls and actions.
 - Install into a project-local `.venv` while using a shared depot/cache path for reusable caches and optional managed tools.
+- Use timeout-based installer defaults for the suggested PythonDepot path and optional wheelhouse build, while still allowing the user to override or skip them.
 
 ## Scientific limitation
 
@@ -85,7 +78,7 @@ Extract the ZIP or clone the repository, then run:
 install_windows.bat
 ```
 
-The installer creates a project-local `.venv`, asks for a shared depot/cache path, installs dependencies, and starts the application.
+The installer creates a project-local `.venv`, suggests a shared depot/cache path, automatically accepts the suggested path after a short timeout unless another path is typed, remembers the selected depot path for later setup actions, installs dependencies, offers an automatic wheelhouse build after a 10-second skip window, and starts the application.
 
 To run the application later:
 
@@ -159,6 +152,8 @@ Ollama requests are made only when the user presses the corresponding button. CA
 
 The Ollama tab includes a 32k default context-length control with 4k-256k slider presets, a timeout setting, a running progress indicator, and an elapsed-time counter for long local model requests.
 
+When enabled in Options, the application asks Ollama to keep the selected model loaded between analyses and follow-up questions to reduce repeated model cold-load delays. The keep-alive request uses a compatibility-oriented duration value and falls back without keep-alive if an older Ollama build rejects the parameter. A manual **Unload Ollama model from memory** button is available in Options, and the app also asks Ollama to unload the kept model when the application exits.
+
 ## CAD query notes
 
 Common CAD parameters exposed in the GUI include:
@@ -184,6 +179,7 @@ Themes are loaded from `themes/*.json` and can be edited or extended without mod
 - Matrix
 - Hellfire
 - Purple
+- Aurora
 
 Languages are loaded from `lang/*.json`. Included languages:
 
@@ -232,4 +228,8 @@ output/
 
 ## License
 
-MIT license
+No license file is included in this package. Add a license before public redistribution if required.
+
+## Local spacecraft/probe context catalog
+
+`data/spacecraft_regions.json` contains an editable approximate radial catalog of artificial-object regions. The catalog is used for the app-derived Spacecraft context column. It is not a live ephemeris/TLE/SPICE database and should be treated as screening context only.

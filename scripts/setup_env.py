@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,7 @@ VENV = ROOT / ".venv"
 REQ = ROOT / "requirements.txt"
 WHEELHOUSE = ROOT / "wheelhouse"
 LOG_DIR = ROOT / "install_logs"
+DEPOT_CHOICE_FILE = LOG_DIR / "last_python_depot.txt"
 
 _ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
 _STD_OUTPUT_HANDLE = -11
@@ -236,20 +238,103 @@ def best_depot_path() -> Path:
     return drive / "PythonDepot"
 
 
+
+def timed_input_with_default(prompt: str, default: Path, timeout_seconds: int = 10) -> str:
+    """Read one line with a timeout, returning empty string for default.
+
+    On Windows this uses msvcrt so a user can start typing before the timeout
+    and then finish the path normally. On non-interactive or redirected input,
+    the default is selected immediately so installers do not hang.
+    """
+    if timeout_seconds <= 0 or not sys.stdin.isatty():
+        print(prompt + str(default))
+        return ""
+
+    print(prompt, end="", flush=True)
+    if os.name == "nt":
+        try:
+            import msvcrt  # type: ignore[import-not-found]
+        except Exception:
+            try:
+                return input().strip()
+            except EOFError:
+                return ""
+
+        chars: list[str] = []
+        deadline = time.monotonic() + timeout_seconds
+        typing_started = False
+        while typing_started or time.monotonic() < deadline:
+            if msvcrt.kbhit():
+                typing_started = True
+                ch = msvcrt.getwch()
+                if ch in {"\r", "\n"}:
+                    print()
+                    return "".join(chars).strip()
+                if ch == "\x03":
+                    raise KeyboardInterrupt
+                if ch in {"\b", "\x7f"}:
+                    if chars:
+                        chars.pop()
+                        print("\b \b", end="", flush=True)
+                    continue
+                # Ignore navigation/function-key prefixes and other control chars.
+                if ch in {"\x00", "\xe0"}:
+                    if msvcrt.kbhit():
+                        msvcrt.getwch()
+                    continue
+                if ord(ch) >= 32:
+                    chars.append(ch)
+                    print(ch, end="", flush=True)
+            else:
+                time.sleep(0.05)
+        print(str(default))
+        return ""
+
+    try:
+        import select
+        ready, _, _ = select.select([sys.stdin], [], [], timeout_seconds)
+        if ready:
+            return sys.stdin.readline().strip()
+        print(str(default))
+        return ""
+    except Exception:
+        try:
+            return input().strip()
+        except EOFError:
+            return ""
+
 def prompt_depot(non_interactive: bool = False) -> Path:
     default = best_depot_path()
+    try:
+        saved = DEPOT_CHOICE_FILE.read_text(encoding="utf-8").strip()
+        if saved:
+            default = Path(saved)
+    except OSError:
+        pass
     print_status("INFO", "blue", f"Suggested shared Python depot/cache path: {default}")
     if non_interactive:
         depot = default
+        print_status("AUTO", "green", f"Using suggested depot/cache path: {depot}")
     else:
         try:
-            value = input("Depot/cache path [press Enter for suggested path]: ").strip().strip('"')
+            value = timed_input_with_default(
+                "Depot/cache path [press Enter for suggested path; auto-selects in 10s]: ",
+                default,
+                timeout_seconds=10,
+            ).strip().strip('"')
         except EOFError:
             value = ""
         depot = Path(value) if value else default
+        if not value:
+            print_status("AUTO", "green", f"Using suggested depot/cache path: {depot}")
     depot.mkdir(parents=True, exist_ok=True)
     for sub in ["uv_cache", "pip_cache", "downloads", "logs", "tools", "wheelhouse"]:
         (depot / sub).mkdir(parents=True, exist_ok=True)
+    try:
+        LOG_DIR.mkdir(exist_ok=True)
+        DEPOT_CHOICE_FILE.write_text(str(depot), encoding="utf-8")
+    except OSError:
+        pass
     return depot
 
 

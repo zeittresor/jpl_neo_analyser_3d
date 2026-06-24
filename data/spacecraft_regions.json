@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "note": "Approximate local radial shells for artificial-space-object context. Not an ephemeris database.",
+  "regions": [
+    {
+      "id": "earth_satellite_operational_shells",
+      "body_code": "Earth",
+      "label": "Earth LEO/MEO/GEO satellite region",
+      "min_km": 6500.0,
+      "max_km": 50000.0,
+      "category": "Earth satellite orbit shell",
+      "examples": [
+        "LEO satellites",
+        "MEO navigation constellations",
+        "GEO spacecraft"
+      ],
+      "note": "Approximate geocentric shell containing common Earth satellite regimes."
+    },
+    {
+      "id": "earth_high_orbit_shell",
+      "body_code": "Earth",
+      "label": "High Earth orbit / above-GEO region",
+      "min_km": 50000.0,
+      "max_km": 120000.0,
+      "category": "high Earth orbit shell",
+      "examples": [
+        "highly elliptical mission orbits"
+      ],
+      "note": ""
+    },
+    {
+      "id": "earth_cislunar_shell",
+      "body_code": "Earth",
+      "label": "Cislunar and lunar-distance region",
+      "min_km": 120000.0,
+      "max_km": 470000.0,
+      "category": "cislunar artificial-object region",
+      "examples": [
+        "lunar-transfer spacecraft",
+        "cislunar missions",
+        "Moon-distance assets"
+      ],
+      "note": ""
+    },
+    {
+      "id": "earth_sun_l1_l2_shell",
+      "body_code": "Earth",
+      "label": "Sun-Earth L1/L2 distance shell",
+      "min_km": 1300000.0,
+      "max_km": 1800000.0,
+      "category": "Lagrange-region shell",
+      "examples": [
+        "SOHO/DSCOVR-type L1 missions",
+        "JWST/Gaia-type L2 missions"
+      ],
+      "note": "Radial shell only; real L1/L2 relevance requires direction and ephemerides."
+    },
+    {
+      "id": "earth_sun_l4_l5_shell",
+      "body_code": "Earth",
+      "label": "Sun-Earth L4/L5 distance scale",
+      "min_km": 120000000.0,
+      "max_km": 180000000.0,
+      "category": "Lagrange distance scale",
+      "examples": [
+        "Sun-Earth L4/L5 survey concepts"
+      ],
+      "note": "Very broad radial distance scale; CAD Earth close-approach rows rarely constrain this usefully."
+    },
+    {
+      "id": "moon_lunar_orbit_shell",
+      "body_code": "Moon",
+      "label": "Lunar orbit / NRHO mission region",
+      "min_km": 1800.0,
+      "max_km": 90000.0,
+      "category": "lunar artificial-object region",
+      "examples": [
+        "LRO-type low lunar orbiters",
+        "NRHO/Gateway-like mission region"
+      ],
+      "note": ""
+    },
+    {
+      "id": "mars_inner_orbiter_shell",
+      "body_code": "Mars",
+      "label": "Mars orbiter and moons region",
+      "min_km": 3700.0,
+      "max_km": 80000.0,
+      "category": "Mars-system artificial-object region",
+      "examples": [
+        "Mars orbiters",
+        "Phobos/Deimos-distance operations"
+      ],
+      "note": ""
+    },
+    {
+      "id": "venus_orbiter_shell",
+      "body_code": "Venus",
+      "label": "Venus orbiter region",
+      "min_km": 6200.0,
+      "max_km": 80000.0,
+      "category": "Venus artificial-object region",
+      "examples": [
+        "Venus orbiter mission shells"
+      ],
+      "note": ""
+    },
+    {
+      "id": "mercury_orbiter_shell",
+      "body_code": "Merc",
+      "label": "Mercury orbiter region",
+      "min_km": 2500.0,
+      "max_km": 80000.0,
+      "category": "Mercury artificial-object region",
+      "examples": [
+        "Mercury orbiter mission shells"
+      ],
+      "note": ""
+    },
+    {
+      "id": "jupiter_system_shell",
+      "body_code": "Juptr",
+      "label": "Jupiter spacecraft / major-moon system region",
+      "min_km": 75000.0,
+      "max_km": 2200000.0,
+      "category": "Jupiter-system artificial-object region",
+      "examples": [
+        "Jupiter orbiters",
+        "Galilean-moon mission regions"
+      ],
+      "note": ""
+    },
+    {
+      "id": "saturn_system_shell",
+      "body_code": "Satrn",
+      "label": "Saturn spacecraft / major-moon system region",
+      "min_km": 65000.0,
+      "max_km": 1600000.0,
+      "category": "Saturn-system artificial-object region",
+      "examples": [
+        "Saturn-system mission regions"
+      ],
+      "note": ""
+    }
+  ]
+}

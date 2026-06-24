@@ -134,14 +134,24 @@ class OllamaClient:
         models = payload.get("models", [])
         return [m.get("name", "") for m in models if m.get("name")]
 
-    def generate(self, model: str, prompt: str, temperature: float = 0.2, num_ctx: int = 8192) -> str:
+    def generate(
+        self,
+        model: str,
+        prompt: str,
+        temperature: float = 0.2,
+        num_ctx: int = 8192,
+        keep_alive: str | int | None = None,
+    ) -> str:
         """Generate text via Ollama using streaming mode.
 
         The UI still receives the final text only, but streaming prevents long
         non-streaming responses from looking like a dead HTTP connection. The
         timeout is a read-inactivity timeout, not a hard total runtime limit.
+        ``keep_alive`` is forwarded to Ollama when supported. Some older Ollama
+        builds reject specific keep_alive values with HTTP 400, so the client
+        retries once without keep_alive before surfacing a useful error.
         """
-        data = {
+        data: dict[str, Any] = {
             "model": model,
             "prompt": prompt,
             "stream": True,
@@ -150,13 +160,32 @@ class OllamaClient:
                 "num_ctx": num_ctx,
             },
         }
-        try:
-            response = requests.post(
+        if keep_alive is not None:
+            data["keep_alive"] = str(keep_alive)
+
+        def post_generate(payload: dict[str, Any]) -> requests.Response:
+            return requests.post(
                 f"{self.base_url}/api/generate",
-                json=data,
+                json=payload,
                 timeout=(10, self.timeout_seconds),
                 stream=True,
             )
+
+        try:
+            response = post_generate(data)
+            if response.status_code == 400 and "keep_alive" in data:
+                first_error = response.text.strip()
+                retry_data = dict(data)
+                retry_data.pop("keep_alive", None)
+                response.close()
+                response = post_generate(retry_data)
+                if response.status_code == 400:
+                    second_error = response.text.strip()
+                    raise RuntimeError(
+                        "Ollama rejected the request with HTTP 400. "
+                        f"First response with keep_alive: {first_error or 'no response body'}. "
+                        f"Retry without keep_alive: {second_error or 'no response body'}."
+                    )
             response.raise_for_status()
             parts: list[str] = []
             for line in response.iter_lines(decode_unicode=True):
@@ -188,3 +217,43 @@ class OllamaClient:
             raise RuntimeError(
                 "Could not connect to Ollama. Check whether Ollama is running at the configured URL."
             ) from exc
+        except requests.exceptions.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.response.text.strip() if exc.response is not None else ""
+            except Exception:
+                body = ""
+            detail = f" Response body: {body}" if body else ""
+            raise RuntimeError(f"Ollama returned an HTTP error while generating: {exc}.{detail}") from exc
+
+
+    def unload_model(self, model: str) -> None:
+        """Ask Ollama to unload a model from memory.
+
+        Ollama unloads a model by receiving a generate request with an empty
+        prompt and ``keep_alive`` set to 0. This is intentionally short-timeout
+        because it is also used when the app exits.
+        """
+        if not model.strip():
+            raise RuntimeError("No Ollama model selected to unload.")
+        data = {"model": model.strip(), "prompt": "", "stream": False, "keep_alive": "0"}
+        try:
+            response = requests.post(f"{self.base_url}/api/generate", json=data, timeout=(5, 10))
+            response.raise_for_status()
+        except requests.exceptions.ConnectTimeout as exc:
+            raise RuntimeError(
+                "Could not connect to Ollama in time while unloading the model."
+            ) from exc
+        except requests.exceptions.ConnectionError as exc:
+            raise RuntimeError(
+                "Could not connect to Ollama while unloading the model."
+            ) from exc
+        except requests.exceptions.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.response.text.strip() if exc.response is not None else ""
+            except Exception:
+                body = ""
+            detail = f" Response body: {body}" if body else ""
+            raise RuntimeError(f"Ollama returned an HTTP error while unloading the model: {exc}.{detail}") from exc
+
