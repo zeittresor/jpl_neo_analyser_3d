@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.33 - 2026-06-24
+
+- Themes: Renamed the bundled Hellfire theme display name to exactly `Hellfire`.
+- Themes: Tuned Aurora with stronger violet accents while keeping the teal/polar-light look.
+- 3D / Simulation: Added a surface/flyby viewpoint HTML view with a viewpoint selector and a configurable time span around modeled closest approach.
+- Viewpoint visualization: Target-surface mode shows an idealized sky path from the sub-approach point; flyby-object mode shows the target body as seen from the synthetic NEO trajectory.
+- Documentation: Updated Usage Notes, README and scientific-limitations notes to clarify that the viewpoint view is CAD-derived and not a true Horizons/SPICE/geographic visibility calculation.
+
+## 0.1.32 - 2026-06-24
+
+- Review pass: Performed a broad static review across source files, installers, localization files, themes, data catalogs, and documentation.
+- Diagnostics: Added a built-in app self-check for key files, language/theme consistency, spacecraft/probe catalog health, writable output folders, selected Ollama model state, and loaded CAD records.
+- Table robustness: Selection and countdown refresh now use hidden per-record keys, improving reliability after sorting and with duplicate-looking close-approach rows.
+- Ollama corrections: Added more defensive parsing for plain-text correction sentinels, one-line correction JSON, fenced JSON, and legacy APP_TABLE_CORRECTIONS blocks.
+- Data safety: Configuration and CAD cache writes now use temporary files where practical; the previous CAD cache is preserved as a backup before replacement.
+- Spacecraft catalog: User-edited catalog entries are validated more defensively, malformed entries are skipped with warnings, and built-in fallback regions are used if the catalog is missing or unusable.
+- Ollama UX: Added explicit checks for an empty selected model before running initial analyses or follow-up questions.
+- Shutdown: Text-to-speech is stopped before model-unload cleanup during app close.
+- Installer: Wheelhouse downloads now use the same progress-suppression path as normal pip operations to reduce noisy console glyphs.
+- Usage Notes: Refreshed and localized usage notes, including self-check, spacecraft/probe context, app-derived values, LLM corrections, and Ollama keep-alive behavior.
+- Scientific documentation: Expanded `docs/SCIENTIFIC_LIMITATIONS.md` to cover app-derived risk/context fields and the local spacecraft/probe catalog.
+- Documentation: Updated README to version 0.1.32 and kept release history in this changelog.
+
 ## v0.1.31
 
 - Data table: Reworked the former satellite-only note into a broader spacecraft/probe context field.

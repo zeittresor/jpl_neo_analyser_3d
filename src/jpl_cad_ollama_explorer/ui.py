@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import traceback
@@ -17,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Generic, TypeVar
 
-from PyQt6.QtCore import QThread, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QT_VERSION_STR, QThread, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QPainter
 from PyQt6.QtPrintSupport import QPrintDialog, QPrinter
 from PyQt6.QtWidgets import (
@@ -59,9 +60,10 @@ from .constants import AU_KM, BODY_CODES, BODY_DISPLAY, BODY_RADIUS_KM, ORBIT_CL
 from .i18n import Translator
 from .network_status import NetworkTimeStatus, check_network_time
 from .simulator import SimulationSettings, simulate_close_approach
-from .spacecraft_context import SpacecraftRegion, load_regions
+from .spacecraft_context import SpacecraftRegion, load_regions_with_errors, save_default_catalog
 from .theme_manager import ThemeManager
 from .visualization import create_visualization_html, open_html
+from .surface_view import create_surface_view_html
 
 T = TypeVar("T")
 
@@ -281,7 +283,8 @@ class MainWindow(QMainWindow):
         self.countdown_timer.setInterval(1000)
         self.countdown_timer.timeout.connect(self._update_countdown_label)
         self.network_time_status: NetworkTimeStatus | None = None
-        self.spacecraft_regions: list[SpacecraftRegion] = load_regions(self.root_dir)
+        save_default_catalog(self.root_dir)
+        self.spacecraft_regions, self.spacecraft_catalog_errors = load_regions_with_errors(self.root_dir)
         self.network_time_worker: Worker | None = None
         self.network_time_timer = QTimer(self)
         self.network_time_timer.setInterval(30 * 60 * 1000)
@@ -718,13 +721,24 @@ class MainWindow(QMainWindow):
         form.addRow(self._label("label_solar_tide", "Solar tide"), self.include_sun_check)
         form.addRow(self._label("label_planets", "Planets"), self.include_planets_check)
         form.addRow(self._label("label_target_scale", "Target body visual scale"), self.target_scale_spin)
+        self.surface_viewpoint_combo = QComboBox()
+        self.surface_viewpoint_combo.addItem("Target surface sub-approach point", "surface")
+        self.surface_viewpoint_combo.addItem("Flyby object / NEO viewpoint", "neo")
+        self.surface_view_span_spin = QDoubleSpinBox()
+        self.surface_view_span_spin.setRange(0.25, 720.0)
+        self.surface_view_span_spin.setValue(24.0)
+        self.surface_view_span_spin.setSuffix(" h")
+        form.addRow(self._label("label_surface_viewpoint", "Viewpoint"), self.surface_viewpoint_combo)
+        form.addRow(self._label("label_surface_view_span", "Viewpoint time span"), self.surface_view_span_spin)
         layout.addWidget(sim_box)
 
         btn_row = QHBoxLayout()
         self.open_3d_btn = QPushButton("Open local 3D visualization")
         self.save_3d_btn = QPushButton("Create HTML only")
+        self.surface_view_btn = QPushButton("View from surface viewpoint")
         btn_row.addWidget(self.open_3d_btn)
         btn_row.addWidget(self.save_3d_btn)
+        btn_row.addWidget(self.surface_view_btn)
         btn_row.addStretch(1)
         layout.addLayout(btn_row)
 
@@ -800,8 +814,13 @@ class MainWindow(QMainWindow):
         form.addRow("", self.ollama_disclaimer_check)
         form.addRow("", self.visualization_disclaimer_check)
         layout.addWidget(box)
+        option_buttons = QHBoxLayout()
         self.save_options_btn = QPushButton("Save options")
-        layout.addWidget(self.save_options_btn)
+        self.self_check_btn = QPushButton("Run app self-check")
+        option_buttons.addWidget(self.save_options_btn)
+        option_buttons.addWidget(self.self_check_btn)
+        option_buttons.addStretch(1)
+        layout.addLayout(option_buttons)
         layout.addStretch(1)
 
     def _build_usage_tab(self) -> None:
@@ -840,10 +859,12 @@ class MainWindow(QMainWindow):
         self.stop_tts_btn.clicked.connect(self.stop_tts)
         self.open_3d_btn.clicked.connect(lambda: self.create_visualization(open_after=True))
         self.save_3d_btn.clicked.connect(lambda: self.create_visualization(open_after=False))
+        self.surface_view_btn.clicked.connect(self.create_surface_viewpoint)
         self.theme_combo.currentIndexChanged.connect(self.apply_selected_theme)
         self.language_combo.currentIndexChanged.connect(self.change_language)
         self.output_browse_btn.clicked.connect(self.browse_output_dir)
         self.save_options_btn.clicked.connect(self._save_config)
+        self.self_check_btn.clicked.connect(self.run_app_self_check)
         self.unload_ollama_model_btn.clicked.connect(self.unload_ollama_model)
         self.allow_llm_table_corrections_check.stateChanged.connect(lambda _state: self._refresh_table_preserve_selection())
         self.allow_llm_table_corrections_check.stateChanged.connect(lambda _state: self._update_llm_correction_button_state())
@@ -876,11 +897,15 @@ class MainWindow(QMainWindow):
         self.list_models_btn.setText(t("list_models"))
         self.open_3d_btn.setText(t("open_3d"))
         self.save_3d_btn.setText(t("save_3d"))
+        self.surface_view_btn.setText(t("surface_view_btn"))
+        self._set_combo_item_text_by_data(self.surface_viewpoint_combo, "surface", t("surface_viewpoint_surface"))
+        self._set_combo_item_text_by_data(self.surface_viewpoint_combo, "neo", t("surface_viewpoint_neo"))
         self.export_csv_btn.setText(t("export_csv"))
         self.open_output_btn.setText(t("open_output"))
         self.output_browse_btn.setText(t("browse"))
         self._update_network_time_label()
         self.save_options_btn.setText(t("save_options"))
+        self.self_check_btn.setText(t("run_self_check"))
         self.followup_btn.setText(t("send_followup"))
         self.followup_edit.setPlaceholderText(t("followup_placeholder"))
         self.print_analysis_btn.setText(t("print_analysis"))
@@ -919,6 +944,7 @@ class MainWindow(QMainWindow):
         self.days_after_spin.setSuffix(" " + t("unit_days"))
         self.step_minutes_spin.setSuffix(" " + t("unit_minutes"))
         self.target_scale_spin.setSuffix(" " + t("unit_visual_radius"))
+        self.surface_view_span_spin.setSuffix(" " + t("unit_hours"))
 
         self.class_combo.setItemText(0, t("combo_any"))
         for idx in range(self.body_combo.count()):
@@ -989,10 +1015,14 @@ class MainWindow(QMainWindow):
             self.stop_tts_btn: "tip_stop_tts",
             self.open_3d_btn: "tip_open_3d",
             self.save_3d_btn: "tip_save_3d",
+            self.surface_view_btn: "tip_surface_view_btn",
+            self.surface_viewpoint_combo: "tip_surface_viewpoint",
+            self.surface_view_span_spin: "tip_surface_view_span",
             self.output_browse_btn: "tip_browse_output",
             self.export_csv_btn: "tip_export_csv",
             self.open_output_btn: "tip_open_output",
             self.save_options_btn: "tip_save_options",
+            self.self_check_btn: "tip_run_self_check",
             self.language_combo: "tip_language",
             self.theme_combo: "tip_theme",
             self.tts_scope_combo: "tip_tts_scope",
@@ -1001,6 +1031,7 @@ class MainWindow(QMainWindow):
             self.visualization_disclaimer_check: "tip_include_visualization_disclaimer",
             self.heuristic_notes_check: "tip_include_heuristic_notes",
             self.allow_llm_table_corrections_check: "tip_allow_llm_table_corrections",
+            self.spacecraft_context_check: "tip_include_spacecraft_context",
             self.assessment_mode_combo: "tip_assessment_mode",
             self.keep_ollama_loaded_check: "tip_keep_ollama_loaded",
             self.unload_ollama_model_btn: "tip_unload_ollama_model",
@@ -1046,7 +1077,7 @@ class MainWindow(QMainWindow):
             return f"@@CODE{len(code_fragments) - 1}@@"
 
         escaped = re.sub(r"`([^`]+)`", hold_code, escaped)
-        escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong><em>\1</em></strong>", escaped)
+        escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
         escaped = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"<em>\1</em>", escaped)
         for idx, fragment in enumerate(code_fragments):
             escaped = escaped.replace(f"@@CODE{idx}@@", fragment)
@@ -1155,21 +1186,25 @@ class MainWindow(QMainWindow):
 
     def _table_correction_prompt_instruction(self) -> str:
         if not self.allow_llm_table_corrections_check.isChecked():
-            return "LLM table corrections are disabled by the user; do not emit an APP_TABLE_CORRECTIONS block.\n"
+            return "LLM table corrections are disabled by the user; do not emit any table-correction JSON block.\n"
         keys = ", ".join(sorted(self.llm_correctable_columns))
         return (
             "The GUI table contains CAD/API columns and app-derived columns. "
-            "App-derived columns are local calculations and may be checked by you. The Spacecraft context/Satellite note field may include a local approximate artificial-space-object region-catalog check for satellites, probes, planet orbiters, cislunar missions and Lagrange-region shells; it is not live ephemeris matching. "
+            "App-derived columns are local calculations and may be checked by you. The internal key Satellite note is shown to the user as Spacecraft context and may include a local approximate artificial-space-object region-catalog check for satellites, probes, planet orbiters, cislunar missions and Lagrange-region shells; it is not live ephemeris matching. "
             "Treat Risk score as a current-close-approach encounter score, not as a PHA/MOID score. "
             "Do not create visible recurring sections about CAD/local-simulation limitations or generic verification steps; the GUI has Usage Notes for that. "
             "Keep any caveat to one or two directly relevant sentences in the main answer. "
             "If you find a concrete correction or better display value for an app-derived table field, "
             "append this exact machine-readable block at the very end of your answer. Use only JSON object keys from this allowed list: "
-            f"{keys}. Do not include commentary inside the block. Values must be short table-display strings. "
+            f"{keys}. You may also use Spacecraft context as an alias for Satellite note. Do not include commentary inside the block. Values must be short table-display strings. "
             "The app will not apply these automatically; the user must press the manual apply button.\n"
-            "<APP_TABLE_CORRECTIONS>{\"Risk score\":\"...\",\"Impact prob. %\":\"...\"}</APP_TABLE_CORRECTIONS>\n"
-            "If no correction is warranted, still append an empty block exactly like this so the GUI can report that no values were suggested: "
-            "<APP_TABLE_CORRECTIONS>{}</APP_TABLE_CORRECTIONS>\n"
+            "BEGIN_APP_TABLE_CORRECTIONS_JSON\n"
+            "{\"Risk score\":\"...\",\"Impact prob. %\":\"...\"}\n"
+            "END_APP_TABLE_CORRECTIONS_JSON\n"
+            "If no correction is warranted, still append an empty block exactly like this so the GUI can report that no values were suggested:\n"
+            "BEGIN_APP_TABLE_CORRECTIONS_JSON\n"
+            "{}\n"
+            "END_APP_TABLE_CORRECTIONS_JSON\n"
         )
 
     def _clean_ollama_visible_text(self, text: str) -> str:
@@ -1210,24 +1245,53 @@ class MainWindow(QMainWindow):
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned or text.strip()
 
+    def _extract_json_object_from_text(self, text: str) -> dict[str, object] | None:
+        cleaned = text.strip()
+        cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE | re.DOTALL).strip()
+        try:
+            payload = json.loads(cleaned)
+            return payload if isinstance(payload, dict) else None
+        except Exception:
+            pass
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                payload = json.loads(cleaned[start:end + 1])
+                return payload if isinstance(payload, dict) else None
+            except Exception:
+                return None
+        return None
+
     def _extract_llm_table_corrections(self, text: str) -> tuple[str, dict[str, str]]:
         if not text:
             return text, {}
-        pattern = re.compile(r"<APP_TABLE_CORRECTIONS>\s*(\{.*?\})\s*</APP_TABLE_CORRECTIONS>", re.DOTALL | re.IGNORECASE)
-        match = pattern.search(text)
+        patterns = [
+            re.compile(r"<APP_TABLE_CORRECTIONS>\s*(\{.*?\})\s*</APP_TABLE_CORRECTIONS>", re.DOTALL | re.IGNORECASE),
+            re.compile(r"BEGIN_APP_TABLE_CORRECTIONS_JSON\s*(\{.*?\})\s*END_APP_TABLE_CORRECTIONS_JSON", re.DOTALL | re.IGNORECASE),
+            re.compile(r"APP_TABLE_CORRECTIONS_JSON\s*=\s*(\{.*?\})(?:\s*$|\s*\n)", re.DOTALL | re.IGNORECASE),
+        ]
+        match: re.Match[str] | None = None
+        for pattern in patterns:
+            match = pattern.search(text)
+            if match:
+                break
         if not match:
             self._set_llm_correction_status("none")
             return self._clean_ollama_visible_text(text), {}
         visible = (text[:match.start()] + text[match.end():]).strip()
         corrections: dict[str, str] = {}
-        try:
-            payload = json.loads(match.group(1))
-            if isinstance(payload, dict):
-                for key, value in payload.items():
-                    if str(key) in self.llm_correctable_columns and value is not None:
-                        corrections[str(key)] = str(value).strip()[:120]
-        except Exception:
-            corrections = {}
+        payload = self._extract_json_object_from_text(match.group(1))
+        aliases = {
+            "Spacecraft context": "Satellite note",
+            "Spacecraft/probe context": "Satellite note",
+            "Spacecraft note": "Satellite note",
+        }
+        if isinstance(payload, dict):
+            for key, value in payload.items():
+                normalized_key = aliases.get(str(key), str(key))
+                if normalized_key in self.llm_correctable_columns and value is not None:
+                    corrections[normalized_key] = str(value).strip()[:120]
         if not corrections:
             self._set_llm_correction_status("none")
         return self._clean_ollama_visible_text(visible), corrections
@@ -1305,14 +1369,138 @@ class MainWindow(QMainWindow):
         self.populate_table(self.records)
         if record_key:
             for row in range(self.table.rowCount()):
-                object_item = self.table.item(row, 0)
-                date_item = self.table.item(row, 1)
-                if not object_item or not date_item:
-                    continue
-                rec = self._record_by_object_date(object_item.text(), date_item.text())
-                if rec and self._record_key(rec) == record_key:
+                row_key = self._item_record_key(row)
+                if row_key == record_key:
                     self.table.selectRow(row)
                     break
+
+    def run_app_self_check(self) -> None:
+        """Run a local, non-network diagnostic pass over project files and writable paths."""
+        lines: list[str] = []
+        errors: list[str] = []
+        warnings: list[str] = []
+
+        def ok(msg: str) -> None:
+            lines.append(f"[OK] {msg}")
+
+        def warn(msg: str) -> None:
+            warnings.append(msg)
+            lines.append(f"[WARN] {msg}")
+
+        def err(msg: str) -> None:
+            errors.append(msg)
+            lines.append(f"[ERROR] {msg}")
+
+        lines.append(f"{__app_name__} v{__version__} self-check")
+        lines.append(f"Python: {sys.version.split()[0]}")
+        lines.append(f"Qt: {QT_VERSION_STR}")
+        lines.append(f"Project root: {self.root_dir}")
+        lines.append("")
+
+        required = [
+            self.root_dir / "requirements.txt",
+            self.root_dir / "README.md",
+            self.root_dir / "docs" / "CHANGELOG.md",
+            self.root_dir / "data" / "spacecraft_regions.json",
+        ]
+        for path in required:
+            if path.exists():
+                ok(f"Found {path.relative_to(self.root_dir)}")
+            else:
+                err(f"Missing {path.relative_to(self.root_dir)}")
+
+        try:
+            lang_files = sorted((self.root_dir / "lang").glob("*.json"))
+            if not lang_files:
+                err("No language JSON files found.")
+            else:
+                lang_payloads = {}
+                for path in lang_files:
+                    lang_payloads[path.stem] = json.loads(path.read_text(encoding="utf-8"))
+                base = set(lang_payloads.get("en", {}))
+                for lang, payload in lang_payloads.items():
+                    missing = sorted(base - set(payload))
+                    extra = sorted(set(payload) - base)
+                    if missing or extra:
+                        warn(f"Language {lang}: key mismatch; missing={len(missing)}, extra={len(extra)}")
+                    else:
+                        ok(f"Language {lang}: {len(payload)} keys")
+        except Exception as exc:
+            err(f"Language JSON validation failed: {exc}")
+
+        try:
+            theme_files = sorted((self.root_dir / "themes").glob("*.json"))
+            if not theme_files:
+                err("No theme JSON files found.")
+            for path in theme_files:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                missing = [key for key in ("id", "display_name", "qss") if not str(payload.get(key, "")).strip()]
+                if missing:
+                    warn(f"Theme {path.name}: missing/empty {', '.join(missing)}")
+                else:
+                    ok(f"Theme {path.stem}: valid metadata")
+        except Exception as exc:
+            err(f"Theme validation failed: {exc}")
+
+        try:
+            regions, catalog_errors = load_regions_with_errors(self.root_dir)
+            if regions:
+                ok(f"Spacecraft/probe catalog: {len(regions)} usable regions")
+            else:
+                err("Spacecraft/probe catalog yielded no usable regions.")
+            for catalog_error in catalog_errors[:8]:
+                warn(f"Catalog: {catalog_error}")
+            if len(catalog_errors) > 8:
+                warn(f"Catalog: {len(catalog_errors) - 8} additional catalog warnings omitted from this summary.")
+        except Exception as exc:
+            err(f"Spacecraft/probe catalog validation failed: {exc}")
+
+        for label, path in (("output", Path(self.output_path_edit.text()).expanduser()), ("logs", self.log_dir), ("cache", self.cache_dir)):
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                test_file = path / ".jpl_cad_self_check.tmp"
+                test_file.write_text("ok", encoding="utf-8")
+                test_file.unlink(missing_ok=True)
+                ok(f"Writable {label} path: {path}")
+            except Exception as exc:
+                err(f"Path not writable ({label}): {path} ({exc})")
+
+        model = self.ollama_model_combo.currentText().strip()
+        if model:
+            ok(f"Selected Ollama model field is non-empty: {model}")
+        else:
+            warn("Selected Ollama model field is empty; analysis requests will be blocked until a model is selected.")
+        if self.records:
+            ok(f"CAD records currently loaded: {len(self.records)}")
+        else:
+            warn("No CAD records currently loaded.")
+
+        lines.append("")
+        if errors:
+            lines.append(f"Result: FAILED with {len(errors)} error(s) and {len(warnings)} warning(s).")
+            title = self.translator.t("self_check_failed_title")
+        elif warnings:
+            lines.append(f"Result: OK with {len(warnings)} warning(s).")
+            title = self.translator.t("self_check_warn_title")
+        else:
+            lines.append("Result: OK. No local file/config problems detected by this check.")
+            title = self.translator.t("self_check_ok_title")
+
+        report = "\n".join(lines)
+        log_path = self._write_error_log(report, "self_check")
+        dlg = ErrorDetailsDialog(
+            self,
+            title,
+            lines[-1],
+            report,
+            log_path,
+            self.translator.t("error_copy_details"),
+            self.translator.t("error_save_as"),
+            self.translator.t("ok"),
+            self.translator.t("error_save_details"),
+        )
+        dlg.exec()
+        self._set_status(self.translator.t("status_self_check_complete"))
 
     def _current_response_language_name(self) -> str:
         lang = str(self.language_combo.currentData() or self.translator.language or "en")
@@ -1456,6 +1644,21 @@ class MainWindow(QMainWindow):
     def _record_key(self, record: CadRecord) -> str:
         return f"{record.designation}|{record.body_code}|{record.close_approach_date}"
 
+    def _record_by_key(self, record_key: str | None) -> CadRecord | None:
+        if not record_key:
+            return None
+        for rec in self.records:
+            if self._record_key(rec) == record_key:
+                return rec
+        return None
+
+    def _item_record_key(self, row: int) -> str | None:
+        item = self.table.item(row, 0) if hasattr(self, "table") and row >= 0 else None
+        if item is None:
+            return None
+        value = item.data(Qt.ItemDataRole.UserRole)
+        return str(value) if value else None
+
     def _display_or_na(self, value: object) -> str:
         text = "" if value is None else str(value).strip()
         return text if text else self.translator.t("value_not_available")
@@ -1510,11 +1713,19 @@ class MainWindow(QMainWindow):
                 "query_params": query.to_params(),
                 "payload": payload,
             }
-            self.cache_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp_path = self.cache_path.with_suffix(".tmp")
+            backup_path = self.cache_path.with_suffix(".bak")
+            tmp_path.write_text(json.dumps(envelope, indent=2, ensure_ascii=False), encoding="utf-8")
+            if self.cache_path.exists():
+                try:
+                    shutil.copy2(self.cache_path, backup_path)
+                except Exception:
+                    pass
+            tmp_path.replace(self.cache_path)
             self.cache_loaded_at = envelope["fetched_at_utc"]
-        except Exception:
-            # Cache failure must not break live data use.
-            pass
+        except Exception as exc:
+            # Cache failure must not break live data use, but keep a log for diagnosis.
+            self._write_error_log(f"CAD cache write failed: {exc}\n\n{traceback.format_exc()}", "cache_write_failed")
 
     def _previous_records_from_cache(self) -> list[CadRecord]:
         envelope = self._read_cache_envelope()
@@ -1677,11 +1888,13 @@ class MainWindow(QMainWindow):
         self.table.setSortingEnabled(False)
         try:
             for row in range(self.table.rowCount()):
-                object_item = self.table.item(row, 0)
-                date_item = self.table.item(row, 1)
-                if not object_item or not date_item:
-                    continue
-                rec = self._record_by_object_date(object_item.text(), date_item.text())
+                rec = self._record_by_key(self._item_record_key(row))
+                if rec is None:
+                    object_item = self.table.item(row, 0)
+                    date_item = self.table.item(row, 1)
+                    if not object_item or not date_item:
+                        continue
+                    rec = self._record_by_object_date(object_item.text(), date_item.text())
                 if rec is None:
                     continue
                 item = self.table.item(row, countdown_col)
@@ -1977,6 +2190,14 @@ class MainWindow(QMainWindow):
             txidx = self.texture_mode_combo.findData(texture_mode)
             if txidx >= 0:
                 self.texture_mode_combo.setCurrentIndex(txidx)
+            viewpoint = data.get("surface_viewpoint", "surface")
+            vpidx = self.surface_viewpoint_combo.findData(viewpoint)
+            if vpidx >= 0:
+                self.surface_viewpoint_combo.setCurrentIndex(vpidx)
+            try:
+                self.surface_view_span_spin.setValue(float(data.get("surface_view_span_hours", self.surface_view_span_spin.value())))
+            except Exception:
+                pass
             self.keep_ollama_loaded_check.setChecked(bool(data.get("keep_ollama_loaded", True)))
             mode = data.get("assessment_mode", "assessment")
             midx = self.assessment_mode_combo.findData(mode)
@@ -1999,7 +2220,8 @@ class MainWindow(QMainWindow):
                 self.language_combo.setCurrentIndex(lidx)
                 self.translator.load(lang)
             self.apply_selected_theme()
-        except Exception:
+        except Exception as exc:
+            self._write_error_log(f"Config load failed: {exc}\n\n{traceback.format_exc()}", "config_load_failed")
             self.apply_selected_theme()
 
     def _save_config(self) -> None:
@@ -2012,6 +2234,8 @@ class MainWindow(QMainWindow):
             "ollama_timeout_seconds": int(self.ollama_timeout_spin.value()),
             "tts_scope": self.tts_scope_combo.currentData(),
             "visualization_texture_mode": self.texture_mode_combo.currentData(),
+            "surface_viewpoint": self.surface_viewpoint_combo.currentData(),
+            "surface_view_span_hours": float(self.surface_view_span_spin.value()),
             "assessment_mode": self.assessment_mode_combo.currentData(),
             "keep_ollama_loaded": self.keep_ollama_loaded_check.isChecked(),
             "include_heuristic_notes": self.heuristic_notes_check.isChecked(),
@@ -2023,8 +2247,13 @@ class MainWindow(QMainWindow):
             "language": self.language_combo.currentData(),
             "output_dir": str(self.output_dir),
         }
-        self.config_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        self._set_status(self.translator.t("status_options_saved"))
+        try:
+            tmp_path = self.config_path.with_suffix(".tmp")
+            tmp_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            tmp_path.replace(self.config_path)
+            self._set_status(self.translator.t("status_options_saved"))
+        except Exception as exc:
+            self._worker_failed(f"Could not save config: {exc}\n\n{traceback.format_exc()}")
 
     def _set_status(self, text: str) -> None:
         self.status_label.setText(text)
@@ -2258,6 +2487,7 @@ class MainWindow(QMainWindow):
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(records))
         for row_idx, record in enumerate(records):
+            record_key = self._record_key(record)
             values = record.table_values()
             values.update(self._computed_values_for_record(record))
             numeric_map = {
@@ -2283,6 +2513,7 @@ class MainWindow(QMainWindow):
             for col_idx, col in enumerate(self.table_columns):
                 text = values.get(col, "")
                 item = NumericItem(text, numeric_map.get(col))
+                item.setData(Qt.ItemDataRole.UserRole, record_key)
                 if col in numeric_map:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 corrected = col in self.llm_table_corrections.get(self._record_key(record), {}) and self.allow_llm_table_corrections_check.isChecked()
@@ -2298,8 +2529,12 @@ class MainWindow(QMainWindow):
         rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
         if not rows:
             return None
-        # Sorting changes visual row order, so map by visible object + date rather than row index.
+        # Sorting changes visual row order. Prefer the hidden per-row record key;
+        # it is duplicate-safe even when two rows share object/date text.
         row = rows[0].row()
+        found = self._record_by_key(self._item_record_key(row))
+        if found is not None:
+            return found
         object_item = self.table.item(row, 0)
         date_item = self.table.item(row, 1)
         object_text = object_item.text() if object_item else ""
@@ -2421,6 +2656,7 @@ class MainWindow(QMainWindow):
             pass
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override name
+        self.stop_tts()
         self._unload_ollama_model_on_close()
         super().closeEvent(event)
 
@@ -2506,6 +2742,9 @@ class MainWindow(QMainWindow):
             include_heuristic_notes=self.heuristic_notes_check.isChecked(),
         )
         model = self.ollama_model_combo.currentText().strip()
+        if not model:
+            QMessageBox.information(self, self.translator.t("ollama_no_model_title"), self.translator.t("ollama_no_model_message"))
+            return
         timeout_seconds = int(self.ollama_timeout_spin.value())
         self.last_assistant_response_text = ""
         self._set_analysis_markdown(
@@ -2746,6 +2985,63 @@ class MainWindow(QMainWindow):
         worker.failed.connect(self._worker_failed)
         worker.finished.connect(lambda: self.open_3d_btn.setEnabled(True))
         worker.finished.connect(lambda: self.save_3d_btn.setEnabled(True))
+        worker.start()
+
+    def create_surface_viewpoint(self) -> None:
+        record = self.selected_record()
+        if not record:
+            QMessageBox.information(self, self.translator.t("no_selection_title"), self.translator.t("no_selection_message"))
+            return
+        self.tabs.setCurrentWidget(self.sim_tab)
+        self._save_config()
+        self.surface_view_btn.setEnabled(False)
+        self.sim_default_active = False
+        self.sim_text.setPlainText(self.translator.t("surface_view_creating"))
+        settings = SimulationSettings(
+            days_before=max(float(self.days_before_spin.value()), float(self.surface_view_span_spin.value()) / 24.0),
+            days_after=max(float(self.days_after_spin.value()), float(self.surface_view_span_spin.value()) / 24.0),
+            step_minutes=float(self.step_minutes_spin.value()),
+            include_sun=self.include_sun_check.isChecked(),
+            include_major_planets=self.include_planets_check.isChecked(),
+        )
+        output_dir = Path(self.output_path_edit.text()).expanduser()
+        viewpoint = str(self.surface_viewpoint_combo.currentData() or "surface")
+        span_hours = float(self.surface_view_span_spin.value())
+
+        def job() -> tuple[str, str]:
+            sim = simulate_close_approach(record, settings)
+            html_path = create_surface_view_html(
+                record,
+                sim,
+                output_dir,
+                viewpoint=viewpoint,
+                span_hours=span_hours,
+                theme_id=str(self.theme_combo.currentData() or "ocean"),
+            )
+            viewpoint_label = self.translator.t("surface_viewpoint_neo" if viewpoint == "neo" else "surface_viewpoint_surface")
+            summary = [
+                f"Surface/viewpoint visualization: {html_path}",
+                "",
+                f"Viewpoint: {viewpoint_label}",
+                f"Time span: ±{span_hours:g} hours around modeled closest approach",
+                "",
+                "Scientific limitation:",
+                "This is an idealized CAD-derived viewpoint based on the synthetic flyby geometry used by the local 3D simulation. It is not a real observing-location, light-curve, atmosphere, visibility, SPICE or Horizons ephemeris calculation.",
+            ]
+            return str(html_path), "\n".join(summary)
+
+        worker: Worker = Worker(job)
+        self.current_worker = worker
+
+        def done(result: object) -> None:
+            html_path, summary = result  # type: ignore[misc]
+            self.sim_text.setPlainText(summary)
+            self._set_status(f"Viewpoint visualization created: {html_path}")
+            open_html(Path(html_path))
+
+        worker.finished_ok.connect(done)
+        worker.failed.connect(self._worker_failed)
+        worker.finished.connect(lambda: self.surface_view_btn.setEnabled(True))
         worker.start()
 
     def apply_selected_theme(self) -> None:

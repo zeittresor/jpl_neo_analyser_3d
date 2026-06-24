@@ -67,7 +67,7 @@ Task:
 4. Mention simulation/local-derived-value limits only if they directly affect the selected record, and keep that to one compact sentence rather than a separate limitations section.
 {verification_task}
 6. Do not sensationalize. Do not infer an official impact probability from this CAD record alone.
-7. If table corrections are enabled in the additional local context, put the machine-readable APP_TABLE_CORRECTIONS block only at the very end and never inside a Markdown code fence. If no table correction is needed, emit an empty block exactly like <APP_TABLE_CORRECTIONS>{{}}</APP_TABLE_CORRECTIONS>. The GUI hides this block from the displayed text.
+7. If table corrections are enabled in the additional local context, put the machine-readable correction block only at the very end using BEGIN_APP_TABLE_CORRECTIONS_JSON / END_APP_TABLE_CORRECTIONS_JSON and never inside a Markdown code fence. If no table correction is needed, emit an empty JSON object inside that block. The GUI hides this block from the displayed text.
 """
 
 

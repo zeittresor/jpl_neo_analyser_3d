@@ -513,10 +513,10 @@ def install_requirements(depot: Path, env: dict[str, str], offline: bool = False
 def build_wheelhouse(env: dict[str, str]) -> None:
     WHEELHOUSE.mkdir(exist_ok=True)
     py = str(venv_python())
-    run([py, "-m", "pip", "download", "-r", str(REQ), "-d", str(WHEELHOUSE)], env=env)
+    pip_install(py, ["download", "-r", str(REQ), "-d", str(WHEELHOUSE)], env)
     # Include uv itself so an offline machine can prepare the depot-managed uv
     # tool from wheelhouse/ instead of needing a live download.
-    run([py, "-m", "pip", "download", "uv", "-d", str(WHEELHOUSE)], env=env)
+    pip_install(py, ["download", "uv", "-d", str(WHEELHOUSE)], env)
 
 
 def main() -> int:

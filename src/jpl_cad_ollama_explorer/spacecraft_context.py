@@ -153,16 +153,61 @@ def default_regions() -> list[SpacecraftRegion]:
     return [SpacecraftRegion.from_mapping(row) for row in rows]
 
 
-def load_regions(root_dir: Path) -> list[SpacecraftRegion]:
+def load_regions_with_errors(root_dir: Path) -> tuple[list[SpacecraftRegion], list[str]]:
+    """Load the local spacecraft/probe region catalog defensively.
+
+    A user may edit data/spacecraft_regions.json. One malformed entry should not
+    disable the whole feature, so invalid rows are skipped and reported while
+    the built-in defaults remain available as a fallback.
+    """
     path = root_dir / "data" / "spacecraft_regions.json"
+    errors: list[str] = []
     if not path.exists():
-        return default_regions()
+        return default_regions(), ["Catalog file is missing; using built-in defaults."]
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         items = raw.get("regions", raw) if isinstance(raw, dict) else raw
-        return [SpacecraftRegion.from_mapping(item) for item in items if isinstance(item, dict)]
-    except Exception:
-        return default_regions()
+        if not isinstance(items, list):
+            return default_regions(), ["Catalog root is not a list or an object with a regions list; using built-in defaults."]
+    except Exception as exc:
+        return default_regions(), [f"Could not parse catalog JSON: {exc}; using built-in defaults."]
+
+    regions: list[SpacecraftRegion] = []
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            errors.append(f"regions[{idx}] is not an object and was skipped.")
+            continue
+        try:
+            region = SpacecraftRegion.from_mapping(item)
+            if not region.body_code.strip():
+                raise ValueError("body_code is empty")
+            if region.max_km <= 0:
+                raise ValueError("max_km must be greater than zero")
+            if region.min_km < 0:
+                raise ValueError("min_km must not be negative")
+            if region.max_km < region.min_km:
+                # Be forgiving for hand-edited catalogs.
+                region = SpacecraftRegion(
+                    id=region.id,
+                    body_code=region.body_code,
+                    label=region.label,
+                    min_km=region.max_km,
+                    max_km=region.min_km,
+                    category=region.category,
+                    examples=region.examples,
+                    note=(region.note + " ").strip() + "min/max were swapped by loader.",
+                )
+            regions.append(region)
+        except Exception as exc:
+            errors.append(f"regions[{idx}] ({item.get('id', 'unknown')!r}) skipped: {exc}")
+    if not regions:
+        return default_regions(), errors + ["No valid catalog entries remained; using built-in defaults."]
+    return regions, errors
+
+
+def load_regions(root_dir: Path) -> list[SpacecraftRegion]:
+    regions, _errors = load_regions_with_errors(root_dir)
+    return regions
 
 
 def save_default_catalog(root_dir: Path) -> None:

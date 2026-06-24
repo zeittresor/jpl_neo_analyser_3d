@@ -234,7 +234,7 @@ def _theme_palette(theme_id: str | None) -> dict[str, str]:
         },
         "aurora": {
             "bg": "#07101c", "panel": "#0d1728", "panel2": "#080a18", "text": "#ecf7ff",
-            "muted": "#b8d8e8", "accent": "#75ffcc", "grid": "#3a7a8c", "notice_bg": "#121b35",
+            "muted": "#c7b8ff", "accent": "#b277ff", "grid": "#3a7a8c", "notice_bg": "#151239",
         },
         "matrix": {
             "bg": "#020602", "panel": "#061206", "panel2": "#020a02", "text": "#d8ffd8",
