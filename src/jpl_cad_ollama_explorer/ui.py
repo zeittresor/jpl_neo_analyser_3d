@@ -64,6 +64,7 @@ from .spacecraft_context import SpacecraftRegion, load_regions_with_errors, save
 from .theme_manager import ThemeManager
 from .visualization import create_visualization_html, open_html
 from .surface_view import create_surface_view_html
+from .game_scenario import write_game_scenario_json
 
 T = TypeVar("T")
 
@@ -399,12 +400,14 @@ class MainWindow(QMainWindow):
         self.data_tab = QWidget()
         self.analysis_tab = QWidget()
         self.sim_tab = QWidget()
+        self.catalog_tab = QWidget()
         self.options_tab = QWidget()
         self.usage_tab = QWidget()
         self.about_tab = QWidget()
         self.tabs.addTab(self.data_tab, "Data")
         self.tabs.addTab(self.analysis_tab, "Ollama Analysis")
         self.tabs.addTab(self.sim_tab, "3D / Simulation")
+        self.tabs.addTab(self.catalog_tab, "Spacecraft Catalog")
         self.tabs.addTab(self.options_tab, "Options")
         self.tabs.addTab(self.usage_tab, "Usage Notes")
         self.tabs.addTab(self.about_tab, "About")
@@ -412,6 +415,7 @@ class MainWindow(QMainWindow):
         self._build_data_tab()
         self._build_analysis_tab()
         self._build_sim_tab()
+        self._build_catalog_tab()
         self._build_options_tab()
         self._build_usage_tab()
         self._build_about_tab()
@@ -728,17 +732,23 @@ class MainWindow(QMainWindow):
         self.surface_view_span_spin.setRange(0.25, 720.0)
         self.surface_view_span_spin.setValue(24.0)
         self.surface_view_span_spin.setSuffix(" h")
+        self.scenario_engine_combo = QComboBox()
+        self.scenario_engine_combo.addItem("Pygame fullscreen scene", "pygame")
+        self.scenario_engine_combo.addItem("HTML/Plotly viewpoint", "html")
         form.addRow(self._label("label_surface_viewpoint", "Viewpoint"), self.surface_viewpoint_combo)
         form.addRow(self._label("label_surface_view_span", "Viewpoint time span"), self.surface_view_span_spin)
+        form.addRow(self._label("label_scenario_engine", "Scenario engine"), self.scenario_engine_combo)
         layout.addWidget(sim_box)
 
         btn_row = QHBoxLayout()
         self.open_3d_btn = QPushButton("Open local 3D visualization")
         self.save_3d_btn = QPushButton("Create HTML only")
         self.surface_view_btn = QPushButton("View from surface viewpoint")
+        self.play_scenario_btn = QPushButton("Play this scenario")
         btn_row.addWidget(self.open_3d_btn)
         btn_row.addWidget(self.save_3d_btn)
         btn_row.addWidget(self.surface_view_btn)
+        btn_row.addWidget(self.play_scenario_btn)
         btn_row.addStretch(1)
         layout.addLayout(btn_row)
 
@@ -823,6 +833,192 @@ class MainWindow(QMainWindow):
         layout.addLayout(option_buttons)
         layout.addStretch(1)
 
+
+    def _build_catalog_tab(self) -> None:
+        layout = QVBoxLayout(self.catalog_tab)
+        intro = QLabel(
+            "Edit the optional local spacecraft/probe region catalog used for broad artificial-object context. "
+            "Entries are approximate radial shells, not live ephemerides."
+        )
+        intro.setWordWrap(True)
+        self.catalog_intro_label = intro
+        layout.addWidget(intro)
+
+        self.catalog_table = QTableWidget(0, 7)
+        self.catalog_table.setHorizontalHeaderLabels(["ID", "Body", "Label", "Min km", "Max km", "Category", "Examples / Note"])
+        self.catalog_table.horizontalHeader().setStretchLastSection(True)
+        self.catalog_table.verticalHeader().setVisible(False)
+        self.catalog_table.setAlternatingRowColors(True)
+        layout.addWidget(self.catalog_table, 1)
+
+        btn_row = QHBoxLayout()
+        self.catalog_add_btn = QPushButton("Add region")
+        self.catalog_delete_btn = QPushButton("Delete selected")
+        self.catalog_reload_btn = QPushButton("Reload catalog")
+        self.catalog_save_btn = QPushButton("Save catalog")
+        self.catalog_open_file_btn = QPushButton("Open catalog file")
+        for btn in [self.catalog_add_btn, self.catalog_delete_btn, self.catalog_reload_btn, self.catalog_save_btn, self.catalog_open_file_btn]:
+            btn_row.addWidget(btn)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
+
+        self.catalog_status_label = QLabel("")
+        self.catalog_status_label.setWordWrap(True)
+        layout.addWidget(self.catalog_status_label)
+        self._load_catalog_table()
+
+    def _catalog_path(self) -> Path:
+        return self.root_dir / "data" / "spacecraft_regions.json"
+
+    def _load_catalog_table(self) -> None:
+        path = self._catalog_path()
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"regions": []}
+            rows = raw.get("regions", raw) if isinstance(raw, dict) else raw
+            if not isinstance(rows, list):
+                rows = []
+        except Exception as exc:
+            rows = []
+            if hasattr(self, "catalog_status_label"):
+                self.catalog_status_label.setText(f"Could not read catalog JSON: {exc}")
+        self.catalog_table.setRowCount(0)
+        for row_data in rows:
+            if isinstance(row_data, dict):
+                self._append_catalog_row(row_data)
+        self._reload_spacecraft_catalog_runtime()
+
+    def _append_catalog_row(self, data: dict[str, object] | None = None) -> None:
+        data = data or {}
+        row = self.catalog_table.rowCount()
+        self.catalog_table.insertRow(row)
+        examples = data.get("examples", [])
+        if isinstance(examples, list):
+            examples_text = "; ".join(str(x) for x in examples)
+        else:
+            examples_text = str(examples or "")
+        note = str(data.get("note", "") or "")
+        combo_text = examples_text + ((" | note: " + note) if note else "")
+        values = [
+            str(data.get("id", "") or ""),
+            str(data.get("body_code", "Earth") or "Earth"),
+            str(data.get("label", "") or ""),
+            str(data.get("min_km", "") or ""),
+            str(data.get("max_km", "") or ""),
+            str(data.get("category", "artificial-object region") or "artificial-object region"),
+            combo_text,
+        ]
+        for col, value in enumerate(values):
+            item = QTableWidgetItem(value)
+            if col in {3, 4}:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.catalog_table.setItem(row, col, item)
+
+    def add_catalog_region(self) -> None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._append_catalog_row({
+            "id": f"custom_region_{timestamp}",
+            "body_code": "Earth",
+            "label": "Custom artificial-object region",
+            "min_km": 0,
+            "max_km": 100000,
+            "category": "custom region",
+            "examples": [],
+            "note": "User-added approximate radial shell.",
+        })
+        self.catalog_table.scrollToBottom()
+
+    def delete_selected_catalog_regions(self) -> None:
+        rows = sorted({idx.row() for idx in self.catalog_table.selectedIndexes()}, reverse=True)
+        for row in rows:
+            self.catalog_table.removeRow(row)
+
+    def _catalog_item_text(self, row: int, col: int) -> str:
+        item = self.catalog_table.item(row, col)
+        return item.text().strip() if item else ""
+
+    def _catalog_payload_from_table(self) -> dict[str, object]:
+        regions: list[dict[str, object]] = []
+        errors: list[str] = []
+        for row in range(self.catalog_table.rowCount()):
+            region_id = self._catalog_item_text(row, 0) or f"region_{row + 1}"
+            body_code = self._catalog_item_text(row, 1) or "Earth"
+            label = self._catalog_item_text(row, 2) or region_id
+            try:
+                min_km = float(self._catalog_item_text(row, 3).replace(",", ""))
+                max_km = float(self._catalog_item_text(row, 4).replace(",", ""))
+            except Exception:
+                errors.append(f"Row {row + 1}: min/max km must be numbers.")
+                continue
+            if min_km < 0 or max_km <= 0:
+                errors.append(f"Row {row + 1}: min_km must be >= 0 and max_km must be > 0.")
+                continue
+            if max_km < min_km:
+                min_km, max_km = max_km, min_km
+            category = self._catalog_item_text(row, 5) or "artificial-object region"
+            examples_note = self._catalog_item_text(row, 6)
+            note = ""
+            examples_part = examples_note
+            if "| note:" in examples_note:
+                examples_part, note = examples_note.split("| note:", 1)
+                note = note.strip()
+            examples = [part.strip() for part in re.split(r"[;,]", examples_part) if part.strip()]
+            regions.append({
+                "id": region_id,
+                "body_code": body_code,
+                "label": label,
+                "min_km": min_km,
+                "max_km": max_km,
+                "category": category,
+                "examples": examples,
+                "note": note,
+            })
+        if errors:
+            raise ValueError("\n".join(errors))
+        return {
+            "schema": 1,
+            "note": "Approximate local radial shells for artificial-space-object context. Not an ephemeris database.",
+            "regions": regions,
+        }
+
+    def save_catalog_from_table(self) -> None:
+        try:
+            payload = self._catalog_payload_from_table()
+            path = self._catalog_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(path.suffix + ".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+            self._reload_spacecraft_catalog_runtime()
+            self.catalog_status_label.setText(self.translator.t("catalog_saved_status").format(count=len(payload.get("regions", []))))
+            self._set_status(self.translator.t("catalog_saved_status").format(count=len(payload.get("regions", []))))
+        except Exception as exc:
+            QMessageBox.warning(self, self.translator.t("catalog_save_failed_title"), f"{self.translator.t('catalog_save_failed_message')}\n\n{exc}")
+
+    def reload_catalog_from_file(self) -> None:
+        self._load_catalog_table()
+        self.catalog_status_label.setText(self.translator.t("catalog_reloaded_status").format(count=len(self.spacecraft_regions)))
+        self._refresh_table_preserve_selection()
+
+    def _reload_spacecraft_catalog_runtime(self) -> None:
+        self.spacecraft_regions, self.spacecraft_catalog_errors = load_regions_with_errors(self.root_dir)
+        if hasattr(self, "catalog_status_label"):
+            status = self.translator.t("catalog_loaded_status").format(count=len(self.spacecraft_regions))
+            if self.spacecraft_catalog_errors:
+                status += " " + self.translator.t("catalog_warning_suffix").format(count=len(self.spacecraft_catalog_errors))
+            self.catalog_status_label.setText(status)
+
+    def open_catalog_file(self) -> None:
+        path = self._catalog_path()
+        try:
+            if os.name == "nt":
+                os.startfile(path)  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except Exception as exc:
+            QMessageBox.warning(self, self.translator.t("catalog_open_failed_title"), f"{path}\n\n{exc}")
+
     def _build_usage_tab(self) -> None:
         layout = QVBoxLayout(self.usage_tab)
         self.usage_text = QTextBrowser()
@@ -860,6 +1056,12 @@ class MainWindow(QMainWindow):
         self.open_3d_btn.clicked.connect(lambda: self.create_visualization(open_after=True))
         self.save_3d_btn.clicked.connect(lambda: self.create_visualization(open_after=False))
         self.surface_view_btn.clicked.connect(self.create_surface_viewpoint)
+        self.play_scenario_btn.clicked.connect(self.play_pygame_scenario)
+        self.catalog_add_btn.clicked.connect(self.add_catalog_region)
+        self.catalog_delete_btn.clicked.connect(self.delete_selected_catalog_regions)
+        self.catalog_reload_btn.clicked.connect(self.reload_catalog_from_file)
+        self.catalog_save_btn.clicked.connect(self.save_catalog_from_table)
+        self.catalog_open_file_btn.clicked.connect(self.open_catalog_file)
         self.theme_combo.currentIndexChanged.connect(self.apply_selected_theme)
         self.language_combo.currentIndexChanged.connect(self.change_language)
         self.output_browse_btn.clicked.connect(self.browse_output_dir)
@@ -877,9 +1079,10 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(0, t("tab_data"))
         self.tabs.setTabText(1, t("tab_analysis"))
         self.tabs.setTabText(2, t("tab_simulation"))
-        self.tabs.setTabText(3, t("tab_options"))
-        self.tabs.setTabText(4, t("tab_usage"))
-        self.tabs.setTabText(5, t("tab_about"))
+        self.tabs.setTabText(3, t("tab_spacecraft_catalog"))
+        self.tabs.setTabText(4, t("tab_options"))
+        self.tabs.setTabText(5, t("tab_usage"))
+        self.tabs.setTabText(6, t("tab_about"))
 
         for key, label in self.i18n_labels.items():
             label.setText(t(key))
@@ -898,8 +1101,18 @@ class MainWindow(QMainWindow):
         self.open_3d_btn.setText(t("open_3d"))
         self.save_3d_btn.setText(t("save_3d"))
         self.surface_view_btn.setText(t("surface_view_btn"))
+        self.play_scenario_btn.setText(t("play_scenario_btn"))
+        self.catalog_intro_label.setText(t("catalog_intro"))
+        self.catalog_add_btn.setText(t("catalog_add"))
+        self.catalog_delete_btn.setText(t("catalog_delete"))
+        self.catalog_reload_btn.setText(t("catalog_reload"))
+        self.catalog_save_btn.setText(t("catalog_save"))
+        self.catalog_open_file_btn.setText(t("catalog_open_file"))
+        self.catalog_table.setHorizontalHeaderLabels([t("catalog_col_id"), t("catalog_col_body"), t("catalog_col_label"), t("catalog_col_min_km"), t("catalog_col_max_km"), t("catalog_col_category"), t("catalog_col_examples_note")])
         self._set_combo_item_text_by_data(self.surface_viewpoint_combo, "surface", t("surface_viewpoint_surface"))
         self._set_combo_item_text_by_data(self.surface_viewpoint_combo, "neo", t("surface_viewpoint_neo"))
+        self._set_combo_item_text_by_data(self.scenario_engine_combo, "pygame", t("scenario_engine_pygame"))
+        self._set_combo_item_text_by_data(self.scenario_engine_combo, "html", t("scenario_engine_html"))
         self.export_csv_btn.setText(t("export_csv"))
         self.open_output_btn.setText(t("open_output"))
         self.output_browse_btn.setText(t("browse"))
@@ -1018,6 +1231,14 @@ class MainWindow(QMainWindow):
             self.surface_view_btn: "tip_surface_view_btn",
             self.surface_viewpoint_combo: "tip_surface_viewpoint",
             self.surface_view_span_spin: "tip_surface_view_span",
+            self.scenario_engine_combo: "tip_scenario_engine",
+            self.play_scenario_btn: "tip_play_scenario_btn",
+            self.catalog_table: "tip_catalog_table",
+            self.catalog_add_btn: "tip_catalog_add",
+            self.catalog_delete_btn: "tip_catalog_delete",
+            self.catalog_reload_btn: "tip_catalog_reload",
+            self.catalog_save_btn: "tip_catalog_save",
+            self.catalog_open_file_btn: "tip_catalog_open_file",
             self.output_browse_btn: "tip_browse_output",
             self.export_csv_btn: "tip_export_csv",
             self.open_output_btn: "tip_open_output",
@@ -1182,22 +1403,21 @@ class MainWindow(QMainWindow):
             f"Spacecraft/probe context note: {computed.get('Satellite note', 'n/a')}",
         ]
         spacecraft_context = self._spacecraft_context_prompt_lines(record)
-        return "\n".join([self._network_context_for_prompt(), ""] + record.summary_lines() + ["", "Visible computed columns:"] + computed_lines + ["", "Local spacecraft/probe-region catalog context:"] + spacecraft_context + ["", "Table correction instruction:", self._table_correction_prompt_instruction()])
+        return "\n".join([self._network_context_for_prompt(), ""] + record.summary_lines() + ["", "Computed/context fields shown to the user:"] + computed_lines + ["", "Approximate spacecraft/probe region context:"] + spacecraft_context + ["", "Optional table-correction output format:", self._table_correction_prompt_instruction()])
 
     def _table_correction_prompt_instruction(self) -> str:
         if not self.allow_llm_table_corrections_check.isChecked():
             return "LLM table corrections are disabled by the user; do not emit any table-correction JSON block.\n"
         keys = ", ".join(sorted(self.llm_correctable_columns))
         return (
-            "The GUI table contains CAD/API columns and app-derived columns. "
-            "App-derived columns are local calculations and may be checked by you. The internal key Satellite note is shown to the user as Spacecraft context and may include a local approximate artificial-space-object region-catalog check for satellites, probes, planet orbiters, cislunar missions and Lagrange-region shells; it is not live ephemeris matching. "
-            "Treat Risk score as a current-close-approach encounter score, not as a PHA/MOID score. "
-            "Do not create visible recurring sections about CAD/local-simulation limitations or generic verification steps; the GUI has Usage Notes for that. "
-            "Keep any caveat to one or two directly relevant sentences in the main answer. "
-            "If you find a concrete correction or better display value for an app-derived table field, "
-            "append this exact machine-readable block at the very end of your answer. Use only JSON object keys from this allowed list: "
-            f"{keys}. You may also use Spacecraft context as an alias for Satellite note. Do not include commentary inside the block. Values must be short table-display strings. "
-            "The app will not apply these automatically; the user must press the manual apply button.\n"
+            "Some visible fields are locally derived display/context fields, not official CAD fields. "
+            "You may check them, especially Risk score, Impact prob. %, Energy Mt TNT, Miss radii and Spacecraft context. "
+            "Risk score is a current close-approach encounter score, not a PHA/MOID score. "
+            "Spacecraft context is a broad radial-shell screening note, not live ephemeris matching. "
+            "Do not describe application internals or add generic limitation/checklist sections. "
+            "If a short table-display correction is warranted, append this machine-readable block at the very end. Use only JSON object keys from this allowed list: "
+            f"{keys}. You may also use Spacecraft context as an alias for Satellite note. Do not include commentary inside the block. "
+            "Values must be short table strings; the user applies them manually.\n"
             "BEGIN_APP_TABLE_CORRECTIONS_JSON\n"
             "{\"Risk score\":\"...\",\"Impact prob. %\":\"...\"}\n"
             "END_APP_TABLE_CORRECTIONS_JSON\n"
@@ -1470,6 +1690,15 @@ class MainWindow(QMainWindow):
             ok(f"Selected Ollama model field is non-empty: {model}")
         else:
             warn("Selected Ollama model field is empty; analysis requests will be blocked until a model is selected.")
+        try:
+            import importlib.util
+            if importlib.util.find_spec("pygame") is not None:
+                ok("Optional Pygame scenario mode is available.")
+            else:
+                warn("Optional Pygame scenario mode is not installed; Play this scenario will show install guidance.")
+        except Exception as exc:
+            warn(f"Optional Pygame scenario mode check failed: {exc}")
+
         if self.records:
             ok(f"CAD records currently loaded: {len(self.records)}")
         else:
@@ -2111,8 +2340,8 @@ class MainWindow(QMainWindow):
         min_km, max_km = interval
         matches, nearest = self._matching_spacecraft_regions(record)
         lines = [
-            "The app has a local approximate artificial-space-object region catalog.",
-            "This is not a live ephemeris database and does not prove a conjunction; it only checks whether the CAD body-centered miss-distance interval overlaps broad radial shells where spacecraft/probes may operate.",
+            "Approximate artificial-space-object region context is available as broad radial shells.",
+            "This is not a live ephemeris database and does not prove a conjunction; it only checks whether the CAD body-centered miss-distance interval overlaps broad shells where spacecraft/probes may operate.",
             f"CAD body-centered distance interval used for this check: {min_km:,.0f} km to {max_km:,.0f} km.",
         ]
         if matches:
@@ -2198,6 +2427,10 @@ class MainWindow(QMainWindow):
                 self.surface_view_span_spin.setValue(float(data.get("surface_view_span_hours", self.surface_view_span_spin.value())))
             except Exception:
                 pass
+            scenario_engine = data.get("scenario_engine", "pygame")
+            seidx = self.scenario_engine_combo.findData(scenario_engine)
+            if seidx >= 0:
+                self.scenario_engine_combo.setCurrentIndex(seidx)
             self.keep_ollama_loaded_check.setChecked(bool(data.get("keep_ollama_loaded", True)))
             mode = data.get("assessment_mode", "assessment")
             midx = self.assessment_mode_combo.findData(mode)
@@ -2236,6 +2469,7 @@ class MainWindow(QMainWindow):
             "visualization_texture_mode": self.texture_mode_combo.currentData(),
             "surface_viewpoint": self.surface_viewpoint_combo.currentData(),
             "surface_view_span_hours": float(self.surface_view_span_spin.value()),
+            "scenario_engine": self.scenario_engine_combo.currentData(),
             "assessment_mode": self.assessment_mode_combo.currentData(),
             "keep_ollama_loaded": self.keep_ollama_loaded_check.isChecked(),
             "include_heuristic_notes": self.heuristic_notes_check.isChecked(),
@@ -3042,6 +3276,115 @@ class MainWindow(QMainWindow):
         worker.finished_ok.connect(done)
         worker.failed.connect(self._worker_failed)
         worker.finished.connect(lambda: self.surface_view_btn.setEnabled(True))
+        worker.start()
+
+
+    def _unload_ollama_before_interactive_scene(self) -> None:
+        if not getattr(self, "keep_ollama_loaded_check", None) or not self.keep_ollama_loaded_check.isChecked():
+            return
+        model = self.ollama_model_combo.currentText().strip()
+        if not model:
+            return
+        try:
+            self._set_status(self.translator.t("status_unloading_ollama_for_scene").format(model=model))
+            OllamaClient(self.ollama_url_edit.text().strip(), timeout_seconds=8).unload_model(model)
+        except Exception as exc:
+            # Launch the educational view anyway; this is a best-effort memory release.
+            log_path = self._write_error_log(f"Could not unload Ollama before Pygame scene: {exc}", "ollama_scene_unload")
+            self._set_status(self.translator.t("status_unload_ollama_for_scene_failed").format(path=str(log_path)))
+
+
+    def _check_pygame_available(self) -> bool:
+        try:
+            import importlib.util
+            return importlib.util.find_spec("pygame") is not None
+        except Exception:
+            return False
+
+    def play_pygame_scenario(self) -> None:
+        record = self.selected_record()
+        if not record:
+            QMessageBox.information(self, self.translator.t("no_selection_title"), self.translator.t("no_selection_message"))
+            return
+        self.tabs.setCurrentWidget(self.sim_tab)
+        self._save_config()
+        engine = str(self.scenario_engine_combo.currentData() or "pygame")
+        if engine == "html":
+            self.create_surface_viewpoint()
+            return
+
+        if not self._check_pygame_available():
+            QMessageBox.information(
+                self,
+                self.translator.t("pygame_missing_title"),
+                self.translator.t("pygame_missing_message"),
+            )
+            self._set_status(self.translator.t("status_pygame_missing"))
+            return
+
+        self.play_scenario_btn.setEnabled(False)
+        self.sim_default_active = False
+        self.sim_text.setPlainText(self.translator.t("play_scenario_creating"))
+        settings = SimulationSettings(
+            days_before=max(float(self.days_before_spin.value()), float(self.surface_view_span_spin.value()) / 24.0),
+            days_after=max(float(self.days_after_spin.value()), float(self.surface_view_span_spin.value()) / 24.0),
+            step_minutes=float(self.step_minutes_spin.value()),
+            include_sun=self.include_sun_check.isChecked(),
+            include_major_planets=self.include_planets_check.isChecked(),
+        )
+        output_dir = Path(self.output_path_edit.text()).expanduser()
+        viewpoint = str(self.surface_viewpoint_combo.currentData() or "surface")
+        span_hours = float(self.surface_view_span_spin.value())
+
+        def job() -> tuple[str, str]:
+            sim = simulate_close_approach(record, settings)
+            scenario_path = write_game_scenario_json(
+                record,
+                sim,
+                output_dir,
+                viewpoint=viewpoint,
+                span_hours=span_hours,
+                theme_id=str(self.theme_combo.currentData() or "ocean"),
+            )
+            viewpoint_label = self.translator.t("surface_viewpoint_neo" if viewpoint == "neo" else "surface_viewpoint_surface")
+            summary = [
+                f"Playable Pygame scenario data: {scenario_path}",
+                "",
+                f"Viewpoint: {viewpoint_label}",
+                f"Time span: ±{span_hours:g} hours around modeled closest approach",
+                "",
+                "Controls:",
+                "WASD move, mouse look, mouse wheel zoom, T telescope, Space pause, 1/2 or +/- time speed, F1 help, Esc quit.",
+                "",
+                "Scientific limitation:",
+                "This is a playful educational scene generated from the same synthetic CAD-derived flyby geometry as the local viewpoint plot. It is not a real landscape, visibility prediction, telescope simulation, observing plan, SPICE or Horizons ephemeris calculation.",
+            ]
+            return str(scenario_path), "\n".join(summary)
+
+        worker: Worker = Worker(job)
+        self.current_worker = worker
+
+        def done(result: object) -> None:
+            scenario_path, summary = result  # type: ignore[misc]
+            self.sim_text.setPlainText(summary)
+            self._unload_ollama_before_interactive_scene()
+            self._set_status(self.translator.t("status_play_scenario_started"))
+            env = os.environ.copy()
+            src_path = str(self.root_dir / "src")
+            env["PYTHONPATH"] = src_path + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+            try:
+                subprocess.Popen(
+                    [sys.executable, "-m", "jpl_cad_ollama_explorer.game_scenario", scenario_path],
+                    cwd=str(self.root_dir),
+                    env=env,
+                    creationflags=(subprocess.CREATE_NEW_CONSOLE if os.name == "nt" and hasattr(subprocess, "CREATE_NEW_CONSOLE") else 0),
+                )
+            except Exception as exc:
+                QMessageBox.warning(self, self.translator.t("play_scenario_failed_title"), f"{self.translator.t('play_scenario_failed_message')}\n\n{exc}")
+
+        worker.finished_ok.connect(done)
+        worker.failed.connect(self._worker_failed)
+        worker.finished.connect(lambda: self.play_scenario_btn.setEnabled(True))
         worker.start()
 
     def apply_selected_theme(self) -> None:

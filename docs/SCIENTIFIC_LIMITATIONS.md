@@ -47,11 +47,13 @@ It compares:
 
 This is useful for intuition: scale, speed, gravitational focusing, and rough perturbation sensitivity.
 
-## What the surface/flyby viewpoint does
+## What the surface/flyby viewpoint and Play Scenario modes do
 
 The surface/flyby viewpoint view uses the same synthetic trajectory to create a local HTML sky-view approximation. In target-surface mode, the observer is placed at an idealized sub-approach surface point. In flyby-object mode, the observer is placed on the synthetic flyby object and looks back at the target body.
 
-This view does not compute real geographic coordinates, target-body rotation, local horizon masking by terrain, daylight, atmosphere, apparent magnitude, camera attitude, phase angle, SPICE kernels, Horizons vectors, or mission-grade observer geometry. It is a visual geometry aid only.
+The optional Pygame **Play this scenario** mode uses the same simplified sky direction samples to create a fullscreen, game-like educational scene. It adds stylized terrain, target markers, telescope/zoom controls and procedural ambience/footstep effects. These are deliberately immersive aids, not measured sounds, landscapes, visibility calculations or mission-grade renderings.
+
+These views do not compute real geographic coordinates, target-body rotation, local horizon masking by terrain, daylight, atmosphere, apparent magnitude, camera attitude, phase angle, SPICE kernels, Horizons vectors, or mission-grade observer geometry. They are visual geometry/education aids only.
 
 ## What it must not be used for
 

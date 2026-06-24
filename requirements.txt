@@ -2,3 +2,6 @@ PyQt6>=6.7,<7
 requests>=2.31,<3
 numpy>=1.26,<3
 plotly>=5.22,<7
+# Fullscreen education/game scenario mode. The app can still run without launching this mode,
+# but the standard installer includes pygame so "Play this scenario" works after setup.
+pygame>=2.5,<3

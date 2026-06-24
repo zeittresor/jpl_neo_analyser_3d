@@ -46,7 +46,7 @@ def build_ollama_prompt(
 Answer strictly in {response_language}.
 {mode_instruction}{heuristic_instruction}Use concise Markdown headings and bullets where helpful.
 Start the answer with an additional short, readable object article section. This article should be written like a compact science-news/observatory note: fluent prose, generally understandable, interesting comparisons, and a calm scientific tone. Keep it concise and do not replace the technical assessment sections that follow.
-Do not create long recurring limitation sections such as "limitations of CAD/local simulation" or generic "verification steps" blocks in the main visible answer. The GUI has localized Usage Notes for that. Keep caveats to one or two directly relevant sentences only when needed.
+Do not create long recurring limitation sections such as "limitations of CAD/local simulation" or generic "verification steps" blocks in the main visible answer. Keep caveats to one or two directly relevant sentences only when needed.
 
 CAD selected close approach record:
 {lines}
@@ -67,7 +67,7 @@ Task:
 4. Mention simulation/local-derived-value limits only if they directly affect the selected record, and keep that to one compact sentence rather than a separate limitations section.
 {verification_task}
 6. Do not sensationalize. Do not infer an official impact probability from this CAD record alone.
-7. If table corrections are enabled in the additional local context, put the machine-readable correction block only at the very end using BEGIN_APP_TABLE_CORRECTIONS_JSON / END_APP_TABLE_CORRECTIONS_JSON and never inside a Markdown code fence. If no table correction is needed, emit an empty JSON object inside that block. The GUI hides this block from the displayed text.
+7. If table corrections are enabled in the additional local context, put the machine-readable correction block only at the very end using BEGIN_APP_TABLE_CORRECTIONS_JSON / END_APP_TABLE_CORRECTIONS_JSON and never inside a Markdown code fence. If no table correction is needed, emit an empty JSON object inside that block.
 """
 
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.34 - 2026-06-24
+
+- 3D / Simulation: Added an optional scenario engine selector so **Play this scenario** can use either a fullscreen Pygame education mode or the lighter HTML/Plotly viewpoint fallback.
+- Pygame mode: Added fullscreen launch, ESC exit, F11 fullscreen toggle, WASD/mouse movement, telescope toggle, mouse-wheel zoom, time-speed controls and an in-scene help overlay.
+- Pygame mode: Added procedural ambience, footsteps and telescope-switch sound effects without bundling audio files. Earth uses forest-like ambience, Venus uses fire/haze-like ambience, Moon/airless bodies use low wind/suit-like ambience, and Neptune uses icy-wind ambience.
+- Performance: Before launching the fullscreen Pygame scene, the app now tries to unload a keep-alive Ollama model to free RAM/VRAM for smoother rendering.
+- Spacecraft catalog: Added a GUI tab for editing, saving, reloading and opening the local `data/spacecraft_regions.json` catalog.
+- Ollama prompt hygiene: Reduced app-internal wording in the model context so Ollama focuses on CAD values, computed/context fields and the selected object rather than the application itself.
+- Installer/dependencies: Pygame is now included in the normal dependency set so the optional education mode is available after standard installation when wheels are available.
+- Documentation: Updated README and changelog for version 0.1.34.
+
 ## 0.1.33 - 2026-06-24
 
 - Themes: Renamed the bundled Hellfire theme display name to exactly `Hellfire`.
