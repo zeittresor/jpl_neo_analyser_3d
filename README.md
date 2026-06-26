@@ -12,6 +12,12 @@ JPL CAD Ollama Explorer is intended as an accessible desktop front end for the N
 
 The application is designed for educational, exploratory, and technical analysis workflows. It is not an official NASA/JPL tool and must not be used as an authoritative impact-risk predictor.
 
+<img width="2560" height="1039" alt="001" src="https://github.com/user-attachments/assets/14427afe-738d-4e73-b7c4-3473ad0d04ce" />
+
+<img width="2560" height="1041" alt="002" src="https://github.com/user-attachments/assets/755c68ab-cd4a-4611-83c5-9026bc5fafc7" />
+
+<img width="1507" height="675" alt="3d" src="https://github.com/user-attachments/assets/fc2c2b96-55cb-432e-b325-50d8ba54b01d" />
+
 ## Main features
 
 - Query the NASA/JPL CAD API at `https://ssd-api.jpl.nasa.gov/cad.api`.
