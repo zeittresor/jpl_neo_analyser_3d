@@ -276,6 +276,7 @@ class MainWindow(QMainWindow):
         self._manual_sort_column = -1
         self._manual_sort_order = Qt.SortOrder.AscendingOrder
         self._syncing_context_control = False
+        self._syncing_scenario_controls = False
         self.context_token_values = [4096, 8192, 16384, 32768, 65536, 131072, 262144]
         self.tts_process: subprocess.Popen | None = None
         self.tts_temp_file: Path | None = None
@@ -705,6 +706,26 @@ class MainWindow(QMainWindow):
         output_row.addWidget(self.print_analysis_btn)
         layout.addLayout(output_row)
 
+
+    def _populate_scenario_engine_combo(self, combo: QComboBox) -> None:
+        combo.addItem("Auto - best available", "auto")
+        combo.addItem("Pyglet/OpenGL 3D scene", "pyglet")
+        combo.addItem("Pygame/software renderer", "pygame")
+        combo.addItem("WebGL/HTML viewpoint", "html")
+
+    def _populate_render_device_combo(self, combo: QComboBox) -> None:
+        combo.addItem("Auto - best hardware available", "auto")
+        combo.addItem("Prefer hardware GPU/OpenGL", "gpu")
+        combo.addItem("Prefer NVIDIA GPU", "nvidia")
+        combo.addItem("Prefer Radeon/AMD GPU", "radeon")
+        combo.addItem("Prefer Intel GPU", "intel")
+        combo.addItem("CPU / software rendering", "software")
+
+    def _populate_shader_cache_combo(self, combo: QComboBox) -> None:
+        combo.addItem("Auto", "auto")
+        combo.addItem("On - prepare/reuse shader cache", "on")
+        combo.addItem("Off", "off")
+
     def _build_sim_tab(self) -> None:
         outer = QVBoxLayout(self.sim_tab)
         scroll = QScrollArea()
@@ -749,8 +770,7 @@ class MainWindow(QMainWindow):
         self.surface_view_span_spin.setValue(24.0)
         self.surface_view_span_spin.setSuffix(" h")
         self.scenario_engine_combo = QComboBox()
-        self.scenario_engine_combo.addItem("Pyglet/OpenGL 3D scene", "pyglet")
-        self.scenario_engine_combo.addItem("HTML/Plotly viewpoint", "html")
+        self._populate_scenario_engine_combo(self.scenario_engine_combo)
         form.addRow(self._label("label_surface_viewpoint", "Viewpoint"), self.surface_viewpoint_combo)
         form.addRow(self._label("label_surface_view_span", "Viewpoint time span"), self.surface_view_span_spin)
         form.addRow(self._label("label_scenario_engine", "Scenario engine"), self.scenario_engine_combo)
@@ -813,6 +833,12 @@ class MainWindow(QMainWindow):
         self.assessment_mode_combo.addItem("Scientific assessment", "assessment")
         self.assessment_mode_combo.addItem("Exploratory what-if assessment", "exploratory")
         self.assessment_mode_combo.setCurrentIndex(1)
+        self.scenario_engine_options_combo = QComboBox()
+        self._populate_scenario_engine_combo(self.scenario_engine_options_combo)
+        self.render_device_combo = QComboBox()
+        self._populate_render_device_combo(self.render_device_combo)
+        self.shader_cache_combo = QComboBox()
+        self._populate_shader_cache_combo(self.shader_cache_combo)
         self.keep_ollama_loaded_check = QCheckBox("Keep selected Ollama model loaded between requests")
         self.keep_ollama_loaded_check.setChecked(True)
         self.unload_ollama_model_btn = QPushButton("Unload Ollama model from memory")
@@ -831,6 +857,9 @@ class MainWindow(QMainWindow):
         form.addRow(self._label("label_visualization_output", "Visualization output"), out_wrap)
         form.addRow(self._label("label_tts_scope", "Read aloud scope"), self.tts_scope_combo)
         form.addRow(self._label("label_texture_mode", "3D object textures"), self.texture_mode_combo)
+        form.addRow(self._label("label_scenario_engine_options", "Play Scenario engine"), self.scenario_engine_options_combo)
+        form.addRow(self._label("label_render_device", "Play Scenario render device"), self.render_device_combo)
+        form.addRow(self._label("label_shader_cache", "Shader cache"), self.shader_cache_combo)
         form.addRow(self._label("label_assessment_mode", "LLM assessment mode"), self.assessment_mode_combo)
         form.addRow("", self.keep_ollama_loaded_check)
         form.addRow(self._label("label_ollama_memory", "Ollama memory"), self.unload_ollama_model_btn)
@@ -1096,6 +1125,8 @@ class MainWindow(QMainWindow):
         self.save_3d_btn.clicked.connect(lambda: self.create_visualization(open_after=False))
         self.surface_view_btn.clicked.connect(self.create_surface_viewpoint)
         self.play_scenario_btn.clicked.connect(self.play_pygame_scenario)
+        self.scenario_engine_combo.currentIndexChanged.connect(lambda _idx: self._sync_scenario_engine_controls("sim"))
+        self.scenario_engine_options_combo.currentIndexChanged.connect(lambda _idx: self._sync_scenario_engine_controls("options"))
         self.catalog_add_btn.clicked.connect(self.add_catalog_region)
         self.catalog_delete_btn.clicked.connect(self.delete_selected_catalog_regions)
         self.catalog_reload_btn.clicked.connect(self.reload_catalog_from_file)
@@ -1154,8 +1185,20 @@ class MainWindow(QMainWindow):
         self.catalog_table.setHorizontalHeaderLabels([t("catalog_col_id"), t("catalog_col_body"), t("catalog_col_label"), t("catalog_col_min_km"), t("catalog_col_max_km"), t("catalog_col_category"), t("catalog_col_examples_note")])
         self._set_combo_item_text_by_data(self.surface_viewpoint_combo, "surface", t("surface_viewpoint_surface"))
         self._set_combo_item_text_by_data(self.surface_viewpoint_combo, "neo", t("surface_viewpoint_neo"))
-        self._set_combo_item_text_by_data(self.scenario_engine_combo, "pyglet", t("scenario_engine_pyglet"))
-        self._set_combo_item_text_by_data(self.scenario_engine_combo, "html", t("scenario_engine_html"))
+        for combo in (self.scenario_engine_combo, self.scenario_engine_options_combo):
+            self._set_combo_item_text_by_data(combo, "auto", t("scenario_engine_auto"))
+            self._set_combo_item_text_by_data(combo, "pyglet", t("scenario_engine_pyglet"))
+            self._set_combo_item_text_by_data(combo, "pygame", t("scenario_engine_pygame"))
+            self._set_combo_item_text_by_data(combo, "html", t("scenario_engine_html"))
+        self._set_combo_item_text_by_data(self.render_device_combo, "auto", t("render_device_auto"))
+        self._set_combo_item_text_by_data(self.render_device_combo, "gpu", t("render_device_gpu"))
+        self._set_combo_item_text_by_data(self.render_device_combo, "nvidia", t("render_device_nvidia"))
+        self._set_combo_item_text_by_data(self.render_device_combo, "radeon", t("render_device_radeon"))
+        self._set_combo_item_text_by_data(self.render_device_combo, "intel", t("render_device_intel"))
+        self._set_combo_item_text_by_data(self.render_device_combo, "software", t("render_device_software"))
+        self._set_combo_item_text_by_data(self.shader_cache_combo, "auto", t("shader_cache_auto"))
+        self._set_combo_item_text_by_data(self.shader_cache_combo, "on", t("shader_cache_on"))
+        self._set_combo_item_text_by_data(self.shader_cache_combo, "off", t("shader_cache_off"))
         self.export_csv_btn.setText(t("export_csv"))
         self.open_output_btn.setText(t("open_output"))
         self.output_browse_btn.setText(t("browse"))
@@ -1295,6 +1338,10 @@ class MainWindow(QMainWindow):
             self.theme_combo: "tip_theme",
             self.tts_scope_combo: "tip_tts_scope",
             self.texture_mode_combo: "tip_texture_mode",
+            self.scenario_engine_combo: "tip_scenario_engine",
+            self.scenario_engine_options_combo: "tip_scenario_engine",
+            self.render_device_combo: "tip_render_device",
+            self.shader_cache_combo: "tip_shader_cache",
             self.ollama_disclaimer_check: "tip_include_ollama_disclaimer",
             self.visualization_disclaimer_check: "tip_include_visualization_disclaimer",
             self.heuristic_notes_check: "tip_include_heuristic_notes",
@@ -1338,6 +1385,25 @@ class MainWindow(QMainWindow):
             self.context_slider.setValue(self._nearest_context_index(value))
         finally:
             self._syncing_context_control = False
+
+    def _set_combo_current_data(self, combo: QComboBox, value: str) -> None:
+        idx = combo.findData(value)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+
+    def _sync_scenario_engine_controls(self, source: str) -> None:
+        if self._syncing_scenario_controls:
+            return
+        self._syncing_scenario_controls = True
+        try:
+            if source == "sim":
+                value = str(self.scenario_engine_combo.currentData() or "auto")
+                self._set_combo_current_data(self.scenario_engine_options_combo, value)
+            else:
+                value = str(self.scenario_engine_options_combo.currentData() or "auto")
+                self._set_combo_current_data(self.scenario_engine_combo, value)
+        finally:
+            self._syncing_scenario_controls = False
 
     def _inline_markdown_to_html(self, text: str) -> str:
         escaped = html.escape(text)
@@ -2477,12 +2543,17 @@ class MainWindow(QMainWindow):
                 self.surface_view_span_spin.setValue(float(data.get("surface_view_span_hours", self.surface_view_span_spin.value())))
             except Exception:
                 pass
-            scenario_engine = data.get("scenario_engine", "pyglet")
-            if scenario_engine == "pygame":
-                scenario_engine = "pyglet"
+            scenario_engine = str(data.get("scenario_engine", "auto") or "auto")
+            if scenario_engine == "webgl":
+                scenario_engine = "html"
             seidx = self.scenario_engine_combo.findData(scenario_engine)
             if seidx >= 0:
                 self.scenario_engine_combo.setCurrentIndex(seidx)
+            self._set_combo_current_data(self.scenario_engine_options_combo, scenario_engine)
+            render_device = str(data.get("scenario_render_device", "auto") or "auto")
+            self._set_combo_current_data(self.render_device_combo, render_device)
+            shader_cache = str(data.get("scenario_shader_cache", "auto") or "auto")
+            self._set_combo_current_data(self.shader_cache_combo, shader_cache)
             self.keep_ollama_loaded_check.setChecked(bool(data.get("keep_ollama_loaded", True)))
             mode = data.get("assessment_mode", "assessment")
             midx = self.assessment_mode_combo.findData(mode)
@@ -2522,6 +2593,8 @@ class MainWindow(QMainWindow):
             "surface_viewpoint": self.surface_viewpoint_combo.currentData(),
             "surface_view_span_hours": float(self.surface_view_span_spin.value()),
             "scenario_engine": self.scenario_engine_combo.currentData(),
+            "scenario_render_device": self.render_device_combo.currentData(),
+            "scenario_shader_cache": self.shader_cache_combo.currentData(),
             "assessment_mode": self.assessment_mode_combo.currentData(),
             "keep_ollama_loaded": self.keep_ollama_loaded_check.isChecked(),
             "include_heuristic_notes": self.heuristic_notes_check.isChecked(),
@@ -3430,18 +3503,10 @@ class MainWindow(QMainWindow):
             return
         self.tabs.setCurrentWidget(self.sim_tab)
         self._save_config()
-        engine = str(self.scenario_engine_combo.currentData() or "pyglet")
-        if engine == "html":
+        engine = str(self.scenario_engine_combo.currentData() or "auto")
+        if engine in {"html", "webgl"}:
+            self._append_app_log("INFO", "Play Scenario requested HTML/WebGL viewpoint mode; opening browser-based viewpoint instead of fullscreen subprocess.")
             self.create_surface_viewpoint()
-            return
-
-        if not self._check_pyglet_available():
-            QMessageBox.information(
-                self,
-                self.translator.t("pyglet_missing_title"),
-                self.translator.t("pyglet_missing_message"),
-            )
-            self._set_status(self.translator.t("status_pyglet_missing"))
             return
 
         self.play_scenario_btn.setEnabled(False)
@@ -3469,9 +3534,15 @@ class MainWindow(QMainWindow):
                 theme_id=str(self.theme_combo.currentData() or "ocean"),
             )
             viewpoint_label = self.translator.t("surface_viewpoint_neo" if viewpoint == "neo" else "surface_viewpoint_surface")
+            engine_label = self.scenario_engine_combo.currentText()
+            render_device_label = self.render_device_combo.currentText()
+            shader_cache_label = self.shader_cache_combo.currentText()
             summary = [
-                f"Playable Pyglet/OpenGL scenario data: {scenario_path}",
+                f"Playable scenario data: {scenario_path}",
                 "",
+                f"Renderer engine: {engine_label}",
+                f"Render device preference: {render_device_label}",
+                f"Shader cache: {shader_cache_label}",
                 f"Viewpoint: {viewpoint_label}",
                 f"Time span: ±{span_hours:g} hours around modeled closest approach",
                 "",
@@ -3479,7 +3550,7 @@ class MainWindow(QMainWindow):
                 "WASD move, mouse look, mouse wheel zoom, T telescope, Space pause, 1/2 or +/- time speed, F1 help, Esc quit.",
                 "",
                 "Scientific limitation:",
-                "This is a playful educational Pyglet/OpenGL scene generated from the same synthetic CAD-derived flyby geometry as the local viewpoint plot. It is not a real landscape, visibility prediction, telescope simulation, observing plan, SPICE or Horizons ephemeris calculation.",
+                "This is a playful educational renderer generated from the same synthetic CAD-derived flyby geometry as the local viewpoint plot. Auto mode tries the best available Pyglet/OpenGL hardware path first and logs any fallback to pygame/software. It is not a real landscape, visibility prediction, telescope simulation, observing plan, SPICE or Horizons ephemeris calculation.",
             ]
             return str(scenario_path), "\n".join(summary)
 
@@ -3516,13 +3587,37 @@ class MainWindow(QMainWindow):
         self.log_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.scenario_log_path = self.log_dir / f"play_scenario_{stamp}.txt"
-        cmd = [sys.executable, "-m", "jpl_cad_ollama_explorer.game_scenario", scenario_path]
+        engine = str(self.scenario_engine_combo.currentData() or "auto")
+        render_device = str(self.render_device_combo.currentData() or "auto")
+        shader_cache = str(self.shader_cache_combo.currentData() or "auto")
+        shader_cache_dir = self.cache_dir / "shaders"
+        env["JPL_CAD_SCENARIO_ENGINE"] = engine
+        env["JPL_CAD_SCENARIO_RENDER_DEVICE"] = render_device
+        env["JPL_CAD_SCENARIO_SHADER_CACHE"] = shader_cache
+        env["JPL_CAD_SCENARIO_SHADER_CACHE_DIR"] = str(shader_cache_dir)
+        cmd = [
+            sys.executable,
+            "-m",
+            "jpl_cad_ollama_explorer.game_scenario",
+            "--engine",
+            engine,
+            "--render-device",
+            render_device,
+            "--shader-cache",
+            shader_cache,
+            "--shader-cache-dir",
+            str(shader_cache_dir),
+            scenario_path,
+        ]
         try:
             self._close_scenario_log_handle()
             self.scenario_log_file_handle = self.scenario_log_path.open("w", encoding="utf-8", errors="replace")
             self.scenario_log_file_handle.write(f"Command: {' '.join(cmd)}\n")
             self.scenario_log_file_handle.write(f"Working directory: {self.root_dir}\n")
-            self.scenario_log_file_handle.write(f"Scenario JSON: {scenario_path}\n\n")
+            self.scenario_log_file_handle.write(f"Scenario JSON: {scenario_path}\n")
+            self.scenario_log_file_handle.write(f"Requested engine: {engine} ({self.scenario_engine_combo.currentText()})\n")
+            self.scenario_log_file_handle.write(f"Requested render device: {render_device} ({self.render_device_combo.currentText()})\n")
+            self.scenario_log_file_handle.write(f"Shader cache: {shader_cache} ({shader_cache_dir})\n\n")
             self.scenario_log_file_handle.flush()
             flags = 0
             if os.name == "nt":
@@ -3536,7 +3631,7 @@ class MainWindow(QMainWindow):
                 stdin=subprocess.DEVNULL,
                 creationflags=flags,
             )
-            self._append_app_log("INFO", f"Started Play Scenario process pid={self.scenario_process.pid}; log={self.scenario_log_path}")
+            self._append_app_log("INFO", f"Started Play Scenario process pid={self.scenario_process.pid}; engine={engine}; render_device={render_device}; shader_cache={shader_cache}; log={self.scenario_log_path}")
             self._set_status(self.translator.t("status_play_scenario_started_logged").format(path=str(self.scenario_log_path)))
             self.scenario_poll_timer.start()
         except Exception as exc:
@@ -3545,6 +3640,33 @@ class MainWindow(QMainWindow):
             details = f"{self.translator.t('play_scenario_failed_message')}\n\n{exc}\n\n{traceback.format_exc()}"
             log_path = self._write_error_log(details, "play_scenario_start_failed")
             QMessageBox.warning(self, self.translator.t("play_scenario_failed_title"), f"{self.translator.t('play_scenario_failed_message')}\n\n{exc}\n\nLog: {log_path}")
+
+    def _scenario_diagnostic_summary(self, path: Path | None) -> str:
+        if path is None or not path.exists():
+            return ""
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            return f"Could not read scenario log summary: {exc}"
+        keywords = (
+            "ENGINE_SELECTED",
+            "OpenGL context",
+            "Pyglet/OpenGL failed",
+            "Falling back",
+            "Fallback renderer",
+            "Requested GPU",
+            "Could not create",
+            "import error",
+            "Shader cache",
+            "vendor=",
+            "renderer=",
+            "WARN",
+            "ERROR",
+        )
+        lines = [line for line in text.splitlines() if any(key in line for key in keywords)]
+        if not lines:
+            return ""
+        return "\n".join(lines[-80:])
 
     def _poll_scenario_process(self) -> None:
         process = self.scenario_process
@@ -3560,6 +3682,9 @@ class MainWindow(QMainWindow):
         path = self.scenario_log_path
         if code == 0:
             self._append_app_log("INFO", f"Play Scenario process exited normally. Log: {path}")
+            summary = self._scenario_diagnostic_summary(path)
+            if summary:
+                self._append_app_log("INFO", "Play Scenario renderer diagnostics:\n" + summary)
             self._set_status(self.translator.t("status_play_scenario_finished"))
         else:
             tail = ""

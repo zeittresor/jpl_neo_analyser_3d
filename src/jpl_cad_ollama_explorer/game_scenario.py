@@ -1,8 +1,11 @@
 # source: https://github.com/zeittresor
 from __future__ import annotations
 
+import argparse
 import json
 import math
+import os
+import platform
 import random
 import sys
 import traceback
@@ -15,6 +18,101 @@ from .constants import BODY_DISPLAY, BODY_RADIUS_KM
 from .simulator import SimulationResult
 from .surface_view import _neo_view, _sanitize_name, _select_path, _select_time_window, _surface_sky
 
+
+
+
+def _scenario_log(level: str, message: str) -> None:
+    """Write a timestamped Play Scenario diagnostic line to stdout.
+
+    The main GUI redirects stdout/stderr into output/logs/play_scenario_*.txt, so every
+    renderer decision and fallback reason becomes visible in the app Log tab and in the
+    persistent scenario log file.
+    """
+    stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+    print(f"[SCENARIO {level.upper()}] {stamp} | {message}", flush=True)
+
+
+def _fallback_reason(code: int) -> str:
+    reasons = {
+        0: "primary renderer exited normally",
+        2: "scenario JSON contained no sky samples",
+        3: "primary renderer dependency import failed",
+        4: "OpenGL window/context creation failed",
+        5: "unhandled Pyglet/OpenGL runtime exception",
+        6: "software/CPU rendering was explicitly requested",
+        7: "WebGL/HTML mode is handled by the main GUI, not by this subprocess",
+    }
+    return reasons.get(code, f"primary renderer returned code {code}")
+
+
+def _decode_gl_string(value: Any) -> str:
+    if value is None:
+        return "unknown"
+    try:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return bytes(value).decode("utf-8", errors="replace")
+    except Exception:
+        return str(value)
+
+
+def _prepare_shader_cache(cache_dir: Path | None, mode: str = "auto") -> None:
+    """Prepare reusable starter shader files for the future shader renderer path.
+
+    The current Pyglet scene still uses the compatibility/fixed-function path for maximum
+    driver tolerance.  Creating a small versioned shader cache now makes diagnostics explicit
+    and keeps the cache location stable for the next renderer upgrade without risking a broken
+    shader path on older GPUs.
+    """
+    if mode == "off":
+        _scenario_log("INFO", "Shader cache disabled by option.")
+        return
+    if cache_dir is None:
+        _scenario_log("INFO", "Shader cache has no directory; skipping shader cache preparation.")
+        return
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        vertex_path = cache_dir / "low_poly_compat_vertex.glsl"
+        fragment_path = cache_dir / "low_poly_compat_fragment.glsl"
+        manifest_path = cache_dir / "shader_cache_manifest.json"
+        created = []
+        if not vertex_path.exists():
+            vertex_path.write_text(
+                "// JPL CAD Ollama Explorer reusable starter shader\n"
+                "// Not yet bound by the legacy compatibility renderer.\n"
+                "#version 120\n"
+                "varying vec4 v_color;\n"
+                "void main() {\n"
+                "    v_color = gl_Color;\n"
+                "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            created.append(vertex_path.name)
+        if not fragment_path.exists():
+            fragment_path.write_text(
+                "// JPL CAD Ollama Explorer reusable starter shader\n"
+                "// Not yet bound by the legacy compatibility renderer.\n"
+                "#version 120\n"
+                "varying vec4 v_color;\n"
+                "void main() {\n"
+                "    gl_FragColor = v_color;\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            created.append(fragment_path.name)
+        manifest = {
+            "schema": "jpl_cad_ollama_explorer.shader_cache.v1",
+            "created_or_checked_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "mode": mode,
+            "active_renderer_note": "Current Pyglet/OpenGL path uses fixed-function compatibility rendering; these shaders are cached for the planned shader renderer upgrade.",
+            "files": [vertex_path.name, fragment_path.name],
+        }
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        action = "created" if created else "reused"
+        _scenario_log("INFO", f"Shader cache {action}: {cache_dir} ({', '.join(created) if created else 'existing files'})")
+    except Exception as exc:
+        _scenario_log("WARN", f"Shader cache preparation failed: {exc}")
 
 def _sample_indices(length: int, max_points: int = 360) -> list[int]:
     if length <= 0:
@@ -973,17 +1071,23 @@ def _create_soundscape(pygame: Any, scene: dict[str, Any]) -> dict[str, Any | No
 
 
 def run_pygame_scenario(scenario_path: Path) -> int:
+    _scenario_log("INFO", "ENGINE_SELECTED=pygame/software. Using legacy CPU software renderer path.")
     try:
         import pygame
     except Exception as exc:  # pragma: no cover - exercised on machines without pygame
-        print("Pygame is not installed. Install optional dependency with: .venv\\Scripts\\python.exe -m pip install pygame")
-        print(f"Import error: {exc}")
+        _scenario_log("ERROR", "Pygame is not installed. Install it with: .venv\\Scripts\\python.exe -m pip install pygame")
+        _scenario_log("ERROR", f"Pygame import error: {exc}")
         return 3
+
+    try:
+        _scenario_log("INFO", f"pygame version: {getattr(pygame, '__version__', 'unknown')} | Python: {sys.version.split()[0]} | Platform: {platform.platform()}")
+    except Exception:
+        pass
 
     scenario = json.loads(Path(scenario_path).read_text(encoding="utf-8"))
     samples = scenario.get("samples") or []
     if not samples:
-        print("Scenario contains no samples.")
+        _scenario_log("ERROR", "Scenario contains no samples.")
         return 2
 
     try:
@@ -1234,20 +1338,24 @@ def _az_el_to_vec(az_deg: float, elev_deg: float) -> Vec3:
     return (math.sin(az) * ce, math.sin(el), math.cos(az) * ce)
 
 
-def _run_pyglet_scenario_impl(scenario_path: Path) -> int:
+def _run_pyglet_scenario_impl(scenario_path: Path, render_device: str = "auto", shader_cache_dir: Path | None = None, shader_cache: str = "auto") -> int:
+    _scenario_log("INFO", f"ENGINE_SELECTED=pyglet/opengl. Requested render_device={render_device}; shader_cache={shader_cache}")
     try:
         import pyglet
         from pyglet.window import key, mouse
         from pyglet import gl
     except Exception as exc:  # pragma: no cover - exercised on machines without pyglet
-        print("pyglet is not installed. Install it with: .venv\\Scripts\\python.exe -m pip install pyglet")
-        print(f"Import error: {exc}")
+        _scenario_log("ERROR", "pyglet is not installed. Install it with: .venv\\Scripts\\python.exe -m pip install pyglet")
+        _scenario_log("ERROR", f"Pyglet import error: {exc}")
         return 3
+
+    _scenario_log("INFO", f"pyglet version: {getattr(pyglet, 'version', 'unknown')} | Python: {sys.version.split()[0]} | Platform: {platform.platform()}")
+    _prepare_shader_cache(shader_cache_dir, shader_cache)
 
     scenario = json.loads(Path(scenario_path).read_text(encoding="utf-8"))
     samples = scenario.get("samples") or []
     if not samples:
-        print("Scenario contains no samples.")
+        _scenario_log("ERROR", "Scenario contains no samples.")
         return 2
 
     scene = scenario.get("scene", {}) if isinstance(scenario.get("scene"), dict) else {}
@@ -1263,13 +1371,31 @@ def _run_pyglet_scenario_impl(scenario_path: Path) -> int:
     try:
         config = gl.Config(double_buffer=True, depth_size=24, sample_buffers=1, samples=2)
         window = pyglet.window.Window(fullscreen=True, caption=f"JPL CAD Play Scenario - {scenario.get('object_name', '')}", config=config, vsync=True)
-    except Exception:
+        _scenario_log("INFO", "Created fullscreen Pyglet/OpenGL window with multisample request.")
+    except Exception as first_exc:
+        _scenario_log("WARN", f"Fullscreen multisample OpenGL window failed; retrying windowed depth-only config. Reason: {first_exc}")
         try:
             config = gl.Config(double_buffer=True, depth_size=24)
             window = pyglet.window.Window(1280, 720, resizable=True, caption=f"JPL CAD Play Scenario - {scenario.get('object_name', '')}", config=config, vsync=True)
+            _scenario_log("INFO", "Created windowed Pyglet/OpenGL fallback window after fullscreen/config failure.")
         except Exception as exc:
-            print(f"Could not create pyglet/OpenGL window: {exc}")
+            _scenario_log("ERROR", f"Could not create pyglet/OpenGL window/context. First error: {first_exc}; retry error: {exc}")
             return 4
+
+    try:
+        gl_vendor = _decode_gl_string(gl.glGetString(gl.GL_VENDOR))
+        gl_renderer = _decode_gl_string(gl.glGetString(gl.GL_RENDERER))
+        gl_version = _decode_gl_string(gl.glGetString(gl.GL_VERSION))
+        glsl_version = _decode_gl_string(gl.glGetString(getattr(gl, "GL_SHADING_LANGUAGE_VERSION", 0x8B8C)))
+        _scenario_log("INFO", f"OpenGL context: vendor={gl_vendor}; renderer={gl_renderer}; version={gl_version}; GLSL={glsl_version}; size={window.width}x{window.height}; fullscreen={window.fullscreen}")
+        requested = str(render_device).lower()
+        match_map = {"nvidia": "nvidia", "radeon": "amd", "amd": "amd", "intel": "intel"}
+        expected = match_map.get(requested)
+        vendor_line = f"{gl_vendor} {gl_renderer}".lower()
+        if expected and expected not in vendor_line and requested not in vendor_line:
+            _scenario_log("WARN", f"Requested GPU preference '{render_device}', but active OpenGL context reports '{gl_vendor} / {gl_renderer}'. Windows may choose the adapter outside this Python process.")
+    except Exception as exc:
+        _scenario_log("WARN", f"Could not query OpenGL renderer details: {exc}")
 
     try:
         window.set_exclusive_mouse(True)
@@ -1829,26 +1955,60 @@ def _run_pyglet_scenario_impl(scenario_path: Path) -> int:
     return 0
 
 
-def run_pyglet_scenario(scenario_path: Path) -> int:
+def run_pyglet_scenario(scenario_path: Path, render_device: str = "auto", shader_cache_dir: Path | None = None, shader_cache: str = "auto") -> int:
     try:
-        return _run_pyglet_scenario_impl(scenario_path)
+        return _run_pyglet_scenario_impl(scenario_path, render_device=render_device, shader_cache_dir=shader_cache_dir, shader_cache=shader_cache)
     except SystemExit:
         raise
     except Exception:
-        print("Pyglet/OpenGL scene failed with an unhandled exception; falling back if possible.")
-        print(traceback.format_exc())
+        _scenario_log("ERROR", "Pyglet/OpenGL scene failed with an unhandled exception.")
+        _scenario_log("ERROR", traceback.format_exc())
         return 5
 
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run a JPL CAD Play Scenario renderer.")
+    parser.add_argument("scenario", help="Path to the generated scenario JSON file.")
+    parser.add_argument("--engine", default=os.environ.get("JPL_CAD_SCENARIO_ENGINE", "auto"), choices=["auto", "pyglet", "opengl", "pygame", "software", "webgl", "html"], help="Renderer engine selection.")
+    parser.add_argument("--render-device", default=os.environ.get("JPL_CAD_SCENARIO_RENDER_DEVICE", "auto"), choices=["auto", "gpu", "nvidia", "radeon", "amd", "intel", "cpu", "software"], help="Requested rendering device preference. Exact GPU adapter selection is OS/driver dependent.")
+    parser.add_argument("--shader-cache", default=os.environ.get("JPL_CAD_SCENARIO_SHADER_CACHE", "auto"), choices=["auto", "on", "off"], help="Prepare/reuse shader cache files for current and future renderers.")
+    parser.add_argument("--shader-cache-dir", default=os.environ.get("JPL_CAD_SCENARIO_SHADER_CACHE_DIR", ""), help="Directory for reusable shader cache files.")
+    return parser.parse_args(argv)
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = list(sys.argv[1:] if argv is None else argv)
-    if not args:
-        print("Usage: python -m jpl_cad_ollama_explorer.game_scenario <scenario.json>")
-        return 2
-    result = run_pyglet_scenario(Path(args[0]))
-    if result in {3, 4, 5}:
-        print("Falling back to legacy Pygame software scene.")
-        return run_pygame_scenario(Path(args[0]))
-    return result
+    ns = _parse_args(argv)
+    scenario_path = Path(ns.scenario)
+    engine = str(ns.engine or "auto").lower()
+    render_device = str(ns.render_device or "auto").lower()
+    shader_cache = str(ns.shader_cache or "auto").lower()
+    shader_cache_dir = Path(ns.shader_cache_dir) if str(ns.shader_cache_dir or "").strip() else scenario_path.parent / "shader_cache"
+
+    _scenario_log("INFO", f"Play Scenario subprocess started. engine={engine}; render_device={render_device}; shader_cache={shader_cache}; scenario={scenario_path}")
+
+    if engine in {"html", "webgl"}:
+        _scenario_log("ERROR", "HTML/WebGL scenario mode is opened by the main GUI as a browser view; no fullscreen subprocess renderer is available for this mode.")
+        return 7
+
+    if render_device in {"cpu", "software"} or engine in {"pygame", "software"}:
+        _scenario_log("INFO", f"Skipping Pyglet/OpenGL because engine={engine} and render_device={render_device}; using software renderer directly.")
+        return run_pygame_scenario(scenario_path)
+
+    # Default and explicit GPU/NVIDIA/Radeon/Intel preferences first try the Pyglet/OpenGL path.
+    result = run_pyglet_scenario(scenario_path, render_device=render_device, shader_cache_dir=shader_cache_dir, shader_cache=shader_cache)
+    if result == 0:
+        _scenario_log("INFO", "Pyglet/OpenGL renderer exited normally.")
+        return 0
+
+    reason = _fallback_reason(result)
+    if engine in {"pyglet", "opengl"}:
+        _scenario_log("ERROR", f"Pyglet/OpenGL forced mode failed: {reason}. Fallback is disabled because this engine was explicitly selected.")
+        return result
+
+    _scenario_log("WARN", f"Pyglet/OpenGL failed in auto mode: {reason}. Falling back to legacy Pygame software renderer.")
+    fallback_result = run_pygame_scenario(scenario_path)
+    _scenario_log("INFO", f"Fallback renderer exited with code {fallback_result}.")
+    return fallback_result
 
 
 if __name__ == "__main__":

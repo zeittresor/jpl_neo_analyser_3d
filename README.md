@@ -4,21 +4,13 @@ A local-first Python/PyQt6 desktop application for querying NASA/JPL SBDB Close 
 
 Original source / updates: `github.com/zeittresor`
 
-Version: `0.1.44`
+Version: `0.1.45`
 
 ## Purpose
 
 JPL CAD Ollama Explorer is intended as an accessible desktop front end for the NASA/JPL CAD API. It helps users inspect close-approach records, convert key values into practical units, create local visualizations, and ask a locally running Ollama model for an explanatory assessment of the selected record.
 
 The application is designed for educational, exploratory, and technical analysis workflows. It is not an official NASA/JPL tool and must not be used as an authoritative impact-risk predictor.
-
-
-<img width="2560" height="1039" alt="001" src="https://github.com/user-attachments/assets/14427afe-738d-4e73-b7c4-3473ad0d04ce" />
-
-<img width="2560" height="1041" alt="002" src="https://github.com/user-attachments/assets/755c68ab-cd4a-4611-83c5-9026bc5fafc7" />
-
-<img width="1507" height="675" alt="3d" src="https://github.com/user-attachments/assets/fc2c2b96-55cb-432e-b325-50d8ba54b01d" />
-
 
 ## Main features
 
@@ -42,8 +34,10 @@ The application is designed for educational, exploratory, and technical analysis
 - Launch an optional fullscreen Pyglet/OpenGL 3D education mode from **Play this scenario**, with WASD/mouse movement, true mouse-look pitch/yaw, telescope/zoom controls, a target marker in the sky, generated low-poly 3D objects, and procedural planet-like terrain textures.
 - Use a dedicated Log tab with a Copy to Clipboard button, Open Log Folder button, and automatic session/error logging for app diagnostics and subprocess failures.
 - Capture Play Scenario stdout/stderr into timestamped log files instead of launching a transient console window, then surface non-zero exits in the Log tab.
-- Fall back to the bundled software-rendered scenario mode if the Pyglet/OpenGL renderer fails during startup/rendering, while preserving the failure details in logs.
-- Choose between the Pyglet/OpenGL fullscreen scenario engine and the lighter HTML/Plotly viewpoint fallback.
+- In Auto mode, fall back to the bundled software-rendered scenario mode if the Pyglet/OpenGL renderer fails during startup/rendering, while preserving the failure details and exact fallback reason in logs.
+- Choose the Play Scenario engine in Options: Auto best available, forced Pyglet/OpenGL for debugging, Pygame/software rendering, or WebGL/HTML viewpoint.
+- Choose a Play Scenario render-device preference such as auto, hardware GPU/OpenGL, NVIDIA, Radeon/AMD, Intel, or CPU/software; the scenario log records the actual OpenGL vendor and renderer reported by the driver.
+- Prepare and reuse a versioned shader-cache location for the current diagnostics and future shader-based renderer path.
 - Run a simplified local what-if simulation comparing straight-line geometry, central-body gravity, and approximate Sun/major-planet tidal terms.
 - Request a local Ollama analysis for the selected record on demand, including optional change-comparison context from the previous cached CAD fetch.
 - Include an additional short article-style prose section in Ollama analyses, with accessible comparisons and calm scientific context before the more technical assessment.
@@ -90,7 +84,7 @@ For authoritative risk assessment, compare against official NASA/JPL/CNEOS resou
 - Internet access for live CAD queries and first-time dependency installation
 - Local Ollama installation only if local AI explanations are desired
 
-Python dependencies are listed in `requirements.txt`. Pyglet is included for the optional fullscreen OpenGL education/scenario mode; the scientific CAD table and HTML visualizations remain usable without launching that mode.
+Python dependencies are listed in `requirements.txt`. Pyglet is included for the optional fullscreen OpenGL education/scenario mode, and pygame is included as the software-rendered fallback. The scientific CAD table and HTML visualizations remain usable without launching that mode.
 
 ## Windows quick start
 
@@ -250,7 +244,7 @@ output/
 
 ## License
 
-MIT license.
+No license file is included in this package. Add a license before public redistribution if required.
 
 ## Local spacecraft/probe context catalog
 

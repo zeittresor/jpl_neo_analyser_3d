@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.45 - 2026-06-26
+
+- Play Scenario diagnostics: Renderer selection is now logged explicitly, including requested engine, requested render device, shader cache mode, active OpenGL vendor/renderer/version and exact fallback reason; the GUI Log tab summarizes these renderer diagnostics after the scenario process exits.
+- Play Scenario options: Added selectable Auto, Pyglet/OpenGL, Pygame/software and WebGL/HTML modes, plus render-device preference and shader-cache options. Auto is the default and tries the best available Pyglet/OpenGL hardware path first.
+- Play Scenario fallback behavior: Forced Pyglet/OpenGL mode now fails loudly for debugging instead of silently switching renderers; Auto mode still falls back to pygame/software when needed and logs why.
+- Shader cache: Added a versioned reusable shader-cache preparation path for the planned shader renderer while keeping the current compatibility renderer stable.
+- Documentation: Updated README to version 0.1.45.
+
 ## 0.1.44 - 2026-06-26
 
 - Play Scenario: Fixed the Pygame software renderer leaving stale backbuffer pixels below the sky area when the camera moved.
