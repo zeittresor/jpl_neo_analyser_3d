@@ -180,19 +180,26 @@ def run(
     capture: bool = False,
 ) -> subprocess.CompletedProcess:
     print_status("CMD", "cyan", " ".join(str(part) for part in cmd))
-    if capture:
-        result = subprocess.run(
-            cmd,
-            cwd=ROOT,
-            env=env,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        )
-    else:
-        result = subprocess.run(cmd, cwd=ROOT, env=env)
+    try:
+        if capture:
+            result = subprocess.run(
+                cmd,
+                cwd=ROOT,
+                env=env,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+        else:
+            result = subprocess.run(cmd, cwd=ROOT, env=env)
+    except FileNotFoundError as exc:
+        message = f"Executable not found while running command: {cmd[0]}\n{exc!r}"
+        if capture or not check:
+            return subprocess.CompletedProcess(cmd, 127, stdout=message)
+        log_file = log_optional_failure("command_executable_not_found.log", message)
+        raise SystemExit(f"Command executable not found. See {log_file}") from exc
     if check and result.returncode != 0:
         raise subprocess.CalledProcessError(result.returncode, cmd)
     return result
@@ -364,12 +371,108 @@ def ensure_venv() -> None:
     run([sys.executable, "-m", "venv", str(VENV)])
 
 
-def sanity_check_python(py: str, env: dict[str, str]) -> bool:
-    result = run([py, "-c", "import sys, encodings; print(sys.executable); print(sys.prefix)"], env=env, check=False)
+def _on_rm_error(func, path, exc_info) -> None:
+    """Best-effort Windows-friendly removal of read-only venv files."""
+    try:
+        os.chmod(path, 0o700)
+        func(path)
+    except Exception:
+        pass
+
+
+def recreate_venv(env: dict[str, str], reason: str, *, log_name: str = "venv_recreate_reason.log") -> str:
+    """Recreate the project-local virtual environment once.
+
+    uv is stricter than normal pip when inspecting Python interpreters. A venv
+    can be present but internally broken, for example with an invalid
+    `pyvenv.cfg`, empty prefixes, or missing `encodings`. Recreating it with
+    the same Python that runs the installer is the safest first repair before
+    falling back to pip-only installation.
+    """
+    LOG_DIR.mkdir(exist_ok=True)
+    try:
+        (LOG_DIR / log_name).write_text(reason, encoding="utf-8", errors="replace")
+    except OSError:
+        pass
+    print_status("STEP", "magenta", "Recreating project-local venv before retrying dependency installation.")
+    if VENV.exists():
+        try:
+            shutil.rmtree(VENV, onerror=_on_rm_error)
+        except Exception as exc:
+            log_optional_failure("venv_remove_failed.log", repr(exc))
+            print_status("WARN", "orange", "Could not remove the old venv cleanly; trying python -m venv --clear.")
+    run([sys.executable, "-m", "venv", "--clear", str(VENV)], env=env)
+    py = str(venv_python())
+    if not sanity_check_python(py, env):
+        raise SystemExit("The project-local venv Python is still not usable after recreation. Please check the selected Python installation.")
+    return py
+
+
+
+def recreate_venv_with_uv(uv: str, env: dict[str, str], reason: str, *, log_name: str = "uv_created_venv_attempt.log") -> str | None:
+    """Try recreating the project venv using uv itself.
+
+    Some Windows installations create a normal `python -m venv` that works for pip,
+    but uv still cannot inspect it. In that case the best uv-specific repair is
+    to let uv create the venv metadata/layout and then retry uv installation before
+    falling back to pip.
+    """
+    LOG_DIR.mkdir(exist_ok=True)
+    try:
+        (LOG_DIR / log_name).write_text(reason, encoding="utf-8", errors="replace")
+    except OSError:
+        pass
+    print_status("STEP", "magenta", "Trying uv-created project venv before using pip fallback.")
+    if VENV.exists():
+        try:
+            shutil.rmtree(VENV, onerror=_on_rm_error)
+        except Exception as exc:
+            log_optional_failure("uv_created_venv_remove_failed.log", repr(exc))
+            print_status("WARN", "orange", "Could not remove the old venv before uv venv; uv repair may fail.")
+    result = run([uv, "--no-progress", "--color", "never", "venv", "--python", sys.executable, str(VENV)], env=env, check=False, capture=True)
+    if result.returncode != 0:
+        log_file = log_optional_failure("uv_created_venv_failed.log", result.stdout or "uv venv failed without output")
+        print_status("WARN", "orange", f"uv could not create the project venv; details written to {log_file}")
+        print_status("STEP", "magenta", "Restoring a normal python -m venv for reliable pip fallback.")
+        return recreate_venv(
+            env,
+            "uv venv failed after removing the project venv; restored a normal python -m venv for pip fallback.",
+            log_name="uv_created_venv_restore_after_failure.log",
+        )
+    if result.stdout:
+        print(result.stdout.rstrip())
+    py = str(venv_python())
+    if not sanity_check_python(py, env, capture=True):
+        print_status("WARN", "orange", "The uv-created project venv did not pass the Python sanity check.")
+        print_status("STEP", "magenta", "Restoring a normal python -m venv for reliable pip fallback.")
+        return recreate_venv(
+            env,
+            "uv created a project venv that failed the Python sanity check; restored a normal python -m venv for pip fallback.",
+            log_name="uv_created_venv_restore_after_sanity_failure.log",
+        )
+    # Ensure pip exists for final fallback and for wheelhouse operations.
+    try:
+        bootstrap_project_pip(py, env)
+    except Exception as exc:
+        log_optional_failure("uv_created_venv_pip_bootstrap_failed.log", repr(exc))
+    return py
+
+def sanity_check_python(py: str, env: dict[str, str], *, capture: bool = False) -> bool:
+    if not Path(py).exists():
+        print_status("WARN", "orange", f"The venv Python interpreter is missing: {py}")
+        log_optional_failure("venv_python_missing.log", f"Missing interpreter: {py}")
+        return False
+    result = run([py, "-c", "import sys, encodings; print(sys.executable); print(sys.prefix)"], env=env, check=False, capture=capture)
     if result.returncode != 0:
         print_status("WARN", "orange", "The venv Python interpreter failed a sanity check.")
+        if capture:
+            log_optional_failure("venv_python_sanity_failed.log", result.stdout or "venv Python sanity check failed without output")
         return False
     return True
+
+
+def bootstrap_project_pip(py: str, env: dict[str, str]) -> None:
+    pip_install(py, ["install", "--upgrade", "pip", "setuptools", "wheel"], env)
 
 
 def pip_args_without_progress(args: list[str]) -> list[str]:
@@ -468,18 +571,60 @@ def choose_uv(depot: Path, env: dict[str, str], *, offline: bool = False) -> str
     return None
 
 
+
+
+def uv_probe_project_venv(uv: str, py: str, env: dict[str, str]) -> subprocess.CompletedProcess:
+    """Probe whether uv can inspect the project venv interpreter."""
+    return run(
+        [uv, "--no-progress", "--color", "never", "pip", "list", "--python", py],
+        env=env,
+        check=False,
+        capture=True,
+    )
+
+
+def uv_can_inspect_project_venv(uv: str, py: str, env: dict[str, str], *, log_name: str = "uv_venv_probe_failed.log") -> bool:
+    """Return True only if uv can inspect this project venv interpreter.
+
+    Some Windows/Python installations run fine through venv pip but are not
+    accepted by uv's interpreter-inspection step. The installer now tries to
+    repair/recreate the venv once before giving up on uv, because inspection
+    failures can come from a stale or malformed project-local venv rather than
+    from uv itself.
+    """
+    result = uv_probe_project_venv(uv, py, env)
+    if result.returncode == 0:
+        return True
+    log_file = log_optional_failure(log_name, result.stdout or "uv venv probe failed without output")
+    print_status("WARN", "orange", f"uv cannot inspect this project venv; details written to {log_file}")
+    return False
+
+
+def clear_uv_cache_best_effort(uv: str, env: dict[str, str]) -> None:
+    result = run([uv, "cache", "clean"], env=env, check=False, capture=True)
+    if result.returncode != 0:
+        log_optional_failure("uv_cache_clean_failed.log", result.stdout or "uv cache clean failed without output")
+
+
+def try_uv_install(uv: str, py: str, env: dict[str, str], *, attempt_name: str) -> bool:
+    print_status("INFO", "blue", f"Trying uv accelerator ({attempt_name}): {uv}")
+    result = run([uv, "--no-progress", "--color", "never", "pip", "install", "--python", py, "-r", str(REQ)], env=env, check=False, capture=True)
+    if result.returncode == 0:
+        if result.stdout:
+            print(result.stdout.rstrip())
+        return True
+    log_file = log_optional_failure(f"uv_install_failed_{attempt_name}.log", result.stdout or "uv failed without output")
+    # Keep the historic filename as the most recent uv failure pointer.
+    log_optional_failure("uv_install_failed.log", result.stdout or "uv failed without output")
+    print_status("WARN", "orange", f"uv install failed; details written to {log_file}")
+    return False
+
 def install_requirements(depot: Path, env: dict[str, str], offline: bool = False) -> None:
     py = str(venv_python())
-    if not sanity_check_python(py, env):
-        print_status("STEP", "magenta", "Recreating broken venv.")
-        if VENV.exists():
-            shutil.rmtree(VENV)
-        ensure_venv()
-        py = str(venv_python())
-        if not sanity_check_python(py, env):
-            raise SystemExit("The project-local venv Python is not usable. Please check the selected Python installation.")
+    if not sanity_check_python(py, env, capture=True):
+        py = recreate_venv(env, "Initial venv sanity check failed before dependency installation.")
 
-    pip_install(py, ["install", "--upgrade", "pip", "setuptools", "wheel"], env)
+    bootstrap_project_pip(py, env)
     if offline:
         if not WHEELHOUSE.exists():
             raise SystemExit("Offline install requested but wheelhouse/ does not exist.")
@@ -491,24 +636,55 @@ def install_requirements(depot: Path, env: dict[str, str], offline: bool = False
 
     # uv is treated as an optional accelerator, never as a hard dependency.
     # The preferred uv is the one managed inside the selected PythonDepot.
-    # A global uv is only a fallback, and any failure returns to venv pip.
+    # A global uv is only a fallback. If uv cannot inspect the venv, first
+    # repair/recreate that venv and retry uv before falling back to pip.
     uv = choose_uv(depot, env, offline=False)
     if uv:
-        print_status("INFO", "blue", f"Trying uv accelerator: {uv}")
-        result = run([uv, "--no-progress", "--color", "never", "pip", "install", "--python", py, "-r", str(REQ)], env=env, check=False, capture=True)
-        if result.returncode == 0:
-            if result.stdout:
-                print(result.stdout.rstrip())
-            return
-        log_file = log_optional_failure("uv_install_failed.log", result.stdout or "uv failed without output")
-        print_status("WARN", "orange", f"uv install failed; details written to {log_file}")
-        print_status("WARN", "orange", "Retrying with venv pip fallback.")
+        if not uv_can_inspect_project_venv(uv, py, env):
+            print_status("STEP", "magenta", "Trying to repair the venv for uv and retry before using pip fallback.")
+            py = recreate_venv(env, "uv could not inspect the existing project venv. Recreated venv with python -m venv and retried uv.", log_name="uv_venv_repair_attempt.log")
+            bootstrap_project_pip(py, env)
+            # Re-choose uv after recreating the venv; this also re-validates the
+            # managed uv executable and allows a repaired depot-managed uv path.
+            uv = choose_uv(depot, env, offline=False)
+            if uv and not uv_can_inspect_project_venv(uv, py, env, log_name="uv_venv_probe_failed_after_python_repair.log"):
+                uv_py = recreate_venv_with_uv(
+                    uv,
+                    env,
+                    "python -m venv repair still could not be inspected by uv. Tried creating the project venv with uv itself.",
+                )
+                if uv_py:
+                    py = uv_py
+
+        if not sanity_check_python(py, env, capture=True):
+            py = recreate_venv(
+                env,
+                "Project venv was missing or unusable after uv repair attempts; restored it before dependency installation.",
+                log_name="venv_restored_before_pip_fallback.log",
+            )
+            bootstrap_project_pip(py, env)
+
+        if uv and uv_can_inspect_project_venv(uv, py, env, log_name="uv_venv_probe_failed_after_repair.log"):
+            if try_uv_install(uv, py, env, attempt_name="first"):
+                return
+            print_status("STEP", "magenta", "Clearing uv cache and retrying uv install once before pip fallback.")
+            clear_uv_cache_best_effort(uv, env)
+            if try_uv_install(uv, py, env, attempt_name="second"):
+                return
+            print_status("WARN", "orange", "uv still failed after repair/retry; using venv pip fallback.")
+
+    if not sanity_check_python(py, env, capture=True):
+        py = recreate_venv(
+            env,
+            "Project venv was missing or unusable immediately before pip fallback; recreated it.",
+            log_name="venv_recreated_immediately_before_pip.log",
+        )
+        bootstrap_project_pip(py, env)
 
     if WHEELHOUSE.exists():
         pip_install(py, ["install", "--find-links", str(WHEELHOUSE), "-r", str(REQ)], env)
     else:
         pip_install(py, ["install", "-r", str(REQ)], env)
-
 
 def build_wheelhouse(env: dict[str, str]) -> None:
     WHEELHOUSE.mkdir(exist_ok=True)
@@ -517,6 +693,25 @@ def build_wheelhouse(env: dict[str, str]) -> None:
     # Include uv itself so an offline machine can prepare the depot-managed uv
     # tool from wheelhouse/ instead of needing a live download.
     pip_install(py, ["download", "uv", "-d", str(WHEELHOUSE)], env)
+
+
+def post_install_smoke_check(env: dict[str, str]) -> None:
+    """Catch lightweight packaging regressions before the installer starts the GUI."""
+    py = str(venv_python())
+    code = (
+        "from jpl_cad_ollama_explorer import __app_name__, __version__; "
+        "assert __app_name__ and __version__; "
+        "print(f'{__app_name__} {__version__}')"
+    )
+    smoke_env = env.copy()
+    existing_pythonpath = smoke_env.get("PYTHONPATH", "")
+    smoke_env["PYTHONPATH"] = str(ROOT / "src") + ((os.pathsep + existing_pythonpath) if existing_pythonpath else "")
+    result = run([py, "-c", code], env=smoke_env, check=False, capture=True)
+    if result.returncode != 0:
+        log_file = log_optional_failure("post_install_smoke_check_failed.log", result.stdout or "post-install smoke check failed")
+        raise SystemExit(f"Post-install smoke check failed. See {log_file}")
+    output = (result.stdout or "").strip()
+    print_status("OK", "green", "Post-install package metadata check passed" + (f": {output}" if output else "."))
 
 
 def main() -> int:
@@ -535,6 +730,7 @@ def main() -> int:
         build_wheelhouse(env)
     else:
         install_requirements(depot, env, offline=args.mode == "offline")
+    post_install_smoke_check(env)
     print_status("OK", "green", "Setup complete.")
     return 0
 

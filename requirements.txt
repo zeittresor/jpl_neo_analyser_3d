@@ -3,5 +3,7 @@ requests>=2.31,<3
 numpy>=1.26,<3
 plotly>=5.22,<7
 # Fullscreen education/game scenario mode. The app can still run without launching this mode,
-# but the standard installer includes pygame so "Play this scenario" works after setup.
+# but the standard installer includes pyglet so "Play this scenario" opens a real OpenGL 3D scene.
+pyglet>=2.1,<3
+# Software-rendered fallback for Play Scenario when Pyglet/OpenGL cannot initialize.
 pygame>=2.5,<3

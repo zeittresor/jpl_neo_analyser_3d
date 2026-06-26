@@ -51,7 +51,7 @@ This is useful for intuition: scale, speed, gravitational focusing, and rough pe
 
 The surface/flyby viewpoint view uses the same synthetic trajectory to create a local HTML sky-view approximation. In target-surface mode, the observer is placed at an idealized sub-approach surface point. In flyby-object mode, the observer is placed on the synthetic flyby object and looks back at the target body.
 
-The optional Pygame **Play this scenario** mode uses the same simplified sky direction samples to create a fullscreen, game-like educational scene. It adds stylized terrain, target markers, telescope/zoom controls and procedural ambience/footstep effects. These are deliberately immersive aids, not measured sounds, landscapes, visibility calculations or mission-grade renderings.
+The optional Pyglet/OpenGL **Play this scenario** mode uses the same simplified sky direction samples to create a fullscreen, game-like educational scene. It adds stylized terrain, generated 3D objects, procedural textures, target markers and telescope/zoom controls. These are deliberately immersive aids, not measured landscapes, visibility calculations or mission-grade renderings.
 
 These views do not compute real geographic coordinates, target-body rotation, local horizon masking by terrain, daylight, atmosphere, apparent magnitude, camera attitude, phase angle, SPICE kernels, Horizons vectors, or mission-grade observer geometry. They are visual geometry/education aids only.
 
@@ -67,3 +67,8 @@ Do not use this app to claim:
 - impact/no-impact certainty
 
 Use official CNEOS/JPL/MPC/Horizons/SPICE resources for that.
+
+
+## Fullscreen education / Pyglet/OpenGL scenery
+
+The optional fullscreen scenario mode uses original, procedurally generated stylized low-poly/cartoon-like scenery. It is meant to make the selected CAD-derived geometry more intuitive and engaging. The landscapes, lighting and texture cues are artistic educational approximations, not real terrain, real local weather, true observing conditions, real spacecraft camera views or an ephemeris-grade visualization.

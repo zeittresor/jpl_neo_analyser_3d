@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Callable, Generic, TypeVar
 
 from PyQt6.QtCore import QT_VERSION_STR, QThread, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QBrush, QPainter
+from PyQt6.QtGui import QColor, QBrush, QPainter, QTextCursor
 from PyQt6.QtPrintSupport import QPrintDialog, QPrinter
 from PyQt6.QtWidgets import (
     QApplication,
@@ -256,6 +256,11 @@ class MainWindow(QMainWindow):
         self.output_dir = self.root_dir / "output" / "visualizations"
         self.log_dir = self.root_dir / "output" / "logs"
         self.cache_dir = self.root_dir / "cache"
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.session_log_path = self.log_dir / f"app_session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        self._log_lines: list[str] = []
+        self._previous_excepthook = sys.excepthook
+        sys.excepthook = self._handle_uncaught_exception
         self.cache_path = self.cache_dir / "last_cad_payload.json"
         self.record_changes: dict[str, dict[str, object]] = {}
         self.llm_table_corrections: dict[str, dict[str, str]] = {}
@@ -277,6 +282,12 @@ class MainWindow(QMainWindow):
         self.tts_poll_timer = QTimer(self)
         self.tts_poll_timer.setInterval(500)
         self.tts_poll_timer.timeout.connect(self._poll_tts_process)
+        self.scenario_process: subprocess.Popen | None = None
+        self.scenario_log_file_handle = None
+        self.scenario_log_path: Path | None = None
+        self.scenario_poll_timer = QTimer(self)
+        self.scenario_poll_timer.setInterval(750)
+        self.scenario_poll_timer.timeout.connect(self._poll_scenario_process)
         self.ollama_elapsed_timer = QTimer(self)
         self.ollama_elapsed_timer.setInterval(1000)
         self.ollama_elapsed_timer.timeout.connect(self._update_ollama_elapsed_label)
@@ -299,6 +310,8 @@ class MainWindow(QMainWindow):
         self._load_config()
         self._connect_signals()
         self._apply_texts()
+        self._append_app_log("INFO", f"{__app_name__} v{__version__} started. Root: {self.root_dir}")
+        self._append_app_log("INFO", f"Session log file: {self.session_log_path}")
         self._set_status(self.translator.t("status_ready"))
         self.countdown_timer.start()
         self.network_time_timer.start()
@@ -402,6 +415,7 @@ class MainWindow(QMainWindow):
         self.sim_tab = QWidget()
         self.catalog_tab = QWidget()
         self.options_tab = QWidget()
+        self.log_tab = QWidget()
         self.usage_tab = QWidget()
         self.about_tab = QWidget()
         self.tabs.addTab(self.data_tab, "Data")
@@ -409,6 +423,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.sim_tab, "3D / Simulation")
         self.tabs.addTab(self.catalog_tab, "Spacecraft Catalog")
         self.tabs.addTab(self.options_tab, "Options")
+        self.tabs.addTab(self.log_tab, "Log")
         self.tabs.addTab(self.usage_tab, "Usage Notes")
         self.tabs.addTab(self.about_tab, "About")
 
@@ -417,6 +432,7 @@ class MainWindow(QMainWindow):
         self._build_sim_tab()
         self._build_catalog_tab()
         self._build_options_tab()
+        self._build_log_tab()
         self._build_usage_tab()
         self._build_about_tab()
 
@@ -733,7 +749,7 @@ class MainWindow(QMainWindow):
         self.surface_view_span_spin.setValue(24.0)
         self.surface_view_span_spin.setSuffix(" h")
         self.scenario_engine_combo = QComboBox()
-        self.scenario_engine_combo.addItem("Pygame fullscreen scene", "pygame")
+        self.scenario_engine_combo.addItem("Pyglet/OpenGL 3D scene", "pyglet")
         self.scenario_engine_combo.addItem("HTML/Plotly viewpoint", "html")
         form.addRow(self._label("label_surface_viewpoint", "Viewpoint"), self.surface_viewpoint_combo)
         form.addRow(self._label("label_surface_view_span", "Viewpoint time span"), self.surface_view_span_spin)
@@ -1027,6 +1043,29 @@ class MainWindow(QMainWindow):
         self.usage_text.setHtml(self._usage_notes_html())
         layout.addWidget(self.usage_text)
 
+    def _build_log_tab(self) -> None:
+        layout = QVBoxLayout(self.log_tab)
+        intro = QLabel("Application log for installer/runtime diagnostics, scenario subprocess output and caught errors.")
+        intro.setWordWrap(True)
+        self.log_intro_label = intro
+        layout.addWidget(intro)
+
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.log_text.setPlainText("\n".join(self._log_lines))
+        layout.addWidget(self.log_text, 1)
+
+        btn_row = QHBoxLayout()
+        self.copy_log_btn = QPushButton("Copy to Clipboard")
+        self.open_log_folder_btn = QPushButton("Open Log Folder")
+        self.clear_log_view_btn = QPushButton("Clear View")
+        btn_row.addWidget(self.copy_log_btn)
+        btn_row.addWidget(self.open_log_folder_btn)
+        btn_row.addWidget(self.clear_log_view_btn)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
+
     def _build_about_tab(self) -> None:
         layout = QVBoxLayout(self.about_tab)
         self.about_text = QTextEdit()
@@ -1068,6 +1107,9 @@ class MainWindow(QMainWindow):
         self.save_options_btn.clicked.connect(self._save_config)
         self.self_check_btn.clicked.connect(self.run_app_self_check)
         self.unload_ollama_model_btn.clicked.connect(self.unload_ollama_model)
+        self.copy_log_btn.clicked.connect(self.copy_app_log_to_clipboard)
+        self.open_log_folder_btn.clicked.connect(self.open_log_folder)
+        self.clear_log_view_btn.clicked.connect(self.clear_log_view)
         self.allow_llm_table_corrections_check.stateChanged.connect(lambda _state: self._refresh_table_preserve_selection())
         self.allow_llm_table_corrections_check.stateChanged.connect(lambda _state: self._update_llm_correction_button_state())
         self.spacecraft_context_check.stateChanged.connect(lambda _state: self._refresh_table_preserve_selection())
@@ -1081,8 +1123,9 @@ class MainWindow(QMainWindow):
         self.tabs.setTabText(2, t("tab_simulation"))
         self.tabs.setTabText(3, t("tab_spacecraft_catalog"))
         self.tabs.setTabText(4, t("tab_options"))
-        self.tabs.setTabText(5, t("tab_usage"))
-        self.tabs.setTabText(6, t("tab_about"))
+        self.tabs.setTabText(5, t("tab_log"))
+        self.tabs.setTabText(6, t("tab_usage"))
+        self.tabs.setTabText(7, t("tab_about"))
 
         for key, label in self.i18n_labels.items():
             label.setText(t(key))
@@ -1111,7 +1154,7 @@ class MainWindow(QMainWindow):
         self.catalog_table.setHorizontalHeaderLabels([t("catalog_col_id"), t("catalog_col_body"), t("catalog_col_label"), t("catalog_col_min_km"), t("catalog_col_max_km"), t("catalog_col_category"), t("catalog_col_examples_note")])
         self._set_combo_item_text_by_data(self.surface_viewpoint_combo, "surface", t("surface_viewpoint_surface"))
         self._set_combo_item_text_by_data(self.surface_viewpoint_combo, "neo", t("surface_viewpoint_neo"))
-        self._set_combo_item_text_by_data(self.scenario_engine_combo, "pygame", t("scenario_engine_pygame"))
+        self._set_combo_item_text_by_data(self.scenario_engine_combo, "pyglet", t("scenario_engine_pyglet"))
         self._set_combo_item_text_by_data(self.scenario_engine_combo, "html", t("scenario_engine_html"))
         self.export_csv_btn.setText(t("export_csv"))
         self.open_output_btn.setText(t("open_output"))
@@ -1125,6 +1168,10 @@ class MainWindow(QMainWindow):
         self.copy_analysis_btn.setText(t("copy_analysis_text"))
         self.apply_llm_corrections_btn.setText(t("apply_llm_corrections"))
         self.unload_ollama_model_btn.setText(t("unload_ollama_model"))
+        self.log_intro_label.setText(t("log_intro"))
+        self.copy_log_btn.setText(t("copy_log_to_clipboard"))
+        self.open_log_folder_btn.setText(t("open_log_folder"))
+        self.clear_log_view_btn.setText(t("clear_log_view"))
         self.read_analysis_btn.setText(t("read_analysis_aloud"))
         self.stop_tts_btn.setText(t("stop_tts"))
         self._set_combo_item_text_by_data(self.tts_scope_combo, "last", t("tts_scope_last"))
@@ -1256,6 +1303,9 @@ class MainWindow(QMainWindow):
             self.assessment_mode_combo: "tip_assessment_mode",
             self.keep_ollama_loaded_check: "tip_keep_ollama_loaded",
             self.unload_ollama_model_btn: "tip_unload_ollama_model",
+            self.copy_log_btn: "tip_copy_log",
+            self.open_log_folder_btn: "tip_open_log_folder",
+            self.clear_log_view_btn: "tip_clear_log_view",
             self.context_slider: "tip_context_length",
             self.num_ctx_spin: "tip_context_length",
         }
@@ -1692,12 +1742,12 @@ class MainWindow(QMainWindow):
             warn("Selected Ollama model field is empty; analysis requests will be blocked until a model is selected.")
         try:
             import importlib.util
-            if importlib.util.find_spec("pygame") is not None:
-                ok("Optional Pygame scenario mode is available.")
+            if importlib.util.find_spec("pyglet") is not None:
+                ok("Optional Pyglet/OpenGL scenario mode is available.")
             else:
-                warn("Optional Pygame scenario mode is not installed; Play this scenario will show install guidance.")
+                warn("Optional Pyglet/OpenGL scenario mode is not installed; Play this scenario will show install guidance.")
         except Exception as exc:
-            warn(f"Optional Pygame scenario mode check failed: {exc}")
+            warn(f"Optional Pyglet/OpenGL scenario mode check failed: {exc}")
 
         if self.records:
             ok(f"CAD records currently loaded: {len(self.records)}")
@@ -2427,7 +2477,9 @@ class MainWindow(QMainWindow):
                 self.surface_view_span_spin.setValue(float(data.get("surface_view_span_hours", self.surface_view_span_spin.value())))
             except Exception:
                 pass
-            scenario_engine = data.get("scenario_engine", "pygame")
+            scenario_engine = data.get("scenario_engine", "pyglet")
+            if scenario_engine == "pygame":
+                scenario_engine = "pyglet"
             seidx = self.scenario_engine_combo.findData(scenario_engine)
             if seidx >= 0:
                 self.scenario_engine_combo.setCurrentIndex(seidx)
@@ -2603,14 +2655,72 @@ class MainWindow(QMainWindow):
             or "httpconnectionpool(host='localhost', port=11434)" in lowered
         )
 
+    def _append_app_log(self, level: str, message: str) -> None:
+        try:
+            stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            text = str(message).rstrip()
+            line = f"[{stamp}] [{level}] {text}"
+            self._log_lines.append(line)
+            if len(self._log_lines) > 4000:
+                self._log_lines = self._log_lines[-4000:]
+            try:
+                self.session_log_path.parent.mkdir(parents=True, exist_ok=True)
+                with self.session_log_path.open("a", encoding="utf-8") as handle:
+                    handle.write(line + "\n")
+            except Exception:
+                pass
+            if hasattr(self, "log_text"):
+                self.log_text.append(line)
+                self.log_text.moveCursor(QTextCursor.MoveOperation.End)
+        except Exception:
+            # Logging must never break the app itself.
+            pass
+
+    def _handle_uncaught_exception(self, exc_type: type[BaseException], exc: BaseException, tb: object) -> None:
+        details = "".join(traceback.format_exception(exc_type, exc, tb))
+        self._append_app_log("ERROR", "Uncaught exception:\n" + details)
+        self._write_error_log(details, "uncaught_exception")
+        try:
+            self._previous_excepthook(exc_type, exc, tb)
+        except Exception:
+            pass
+
+    def copy_app_log_to_clipboard(self) -> None:
+        # Copy the complete in-memory session log, not only the currently visible QTextEdit
+        # content. This stays useful even after the user has used Clear View.
+        text = "\n".join(self._log_lines)
+        if not text and hasattr(self, "log_text"):
+            text = self.log_text.toPlainText()
+        QApplication.clipboard().setText(text)
+        self._set_status(self.translator.t("status_log_copied"))
+
+    def clear_log_view(self) -> None:
+        if hasattr(self, "log_text"):
+            self.log_text.clear()
+        self._append_app_log("INFO", "Log view cleared by user. Existing log files were kept.")
+        self._set_status(self.translator.t("status_log_view_cleared"))
+
+    def open_log_folder(self) -> None:
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            if os.name == "nt":
+                os.startfile(str(self.log_dir))  # type: ignore[attr-defined]
+            else:
+                open_html(self.log_dir)
+            self._append_app_log("INFO", f"Opened log folder: {self.log_dir}")
+        except Exception as exc:
+            self._worker_failed(f"Could not open log folder: {exc}\n\n{traceback.format_exc()}")
+
     def _write_error_log(self, message: str, prefix: str = "error") -> Path | None:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_path = self.log_dir / f"{prefix}_{stamp}.txt"
         try:
             log_path.write_text(message, encoding="utf-8")
+            self._append_app_log("ERROR" if prefix != "self_check" else "INFO", f"Wrote log file: {log_path}")
             return log_path
-        except Exception:
+        except Exception as exc:
+            self._append_app_log("ERROR", f"Could not write log file for prefix {prefix}: {exc}")
             return None
 
     def _find_ollama_executable(self) -> Path | None:
@@ -2698,6 +2808,7 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(500, retry_callback)
 
     def _worker_failed(self, message: str) -> None:
+        self._append_app_log("ERROR", message)
         self._set_status(self.translator.t("status_operation_failed"))
         if self._is_ollama_connection_error(message):
             self._show_ollama_unavailable_dialog(message)
@@ -2891,7 +3002,18 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt override name
         self.stop_tts()
+        if self.scenario_process is not None and self.scenario_process.poll() is None:
+            try:
+                self.scenario_process.terminate()
+                self._append_app_log("INFO", "Terminated running Play Scenario process during app shutdown.")
+            except Exception as exc:
+                self._append_app_log("WARN", f"Could not terminate Play Scenario process during shutdown: {exc}")
+        self._close_scenario_log_handle()
         self._unload_ollama_model_on_close()
+        try:
+            sys.excepthook = self._previous_excepthook
+        except Exception:
+            pass
         super().closeEvent(event)
 
     def list_ollama_models(self) -> None:
@@ -3290,14 +3412,14 @@ class MainWindow(QMainWindow):
             OllamaClient(self.ollama_url_edit.text().strip(), timeout_seconds=8).unload_model(model)
         except Exception as exc:
             # Launch the educational view anyway; this is a best-effort memory release.
-            log_path = self._write_error_log(f"Could not unload Ollama before Pygame scene: {exc}", "ollama_scene_unload")
+            log_path = self._write_error_log(f"Could not unload Ollama before Pyglet/OpenGL scene: {exc}", "ollama_scene_unload")
             self._set_status(self.translator.t("status_unload_ollama_for_scene_failed").format(path=str(log_path)))
 
 
-    def _check_pygame_available(self) -> bool:
+    def _check_pyglet_available(self) -> bool:
         try:
             import importlib.util
-            return importlib.util.find_spec("pygame") is not None
+            return importlib.util.find_spec("pyglet") is not None
         except Exception:
             return False
 
@@ -3308,18 +3430,18 @@ class MainWindow(QMainWindow):
             return
         self.tabs.setCurrentWidget(self.sim_tab)
         self._save_config()
-        engine = str(self.scenario_engine_combo.currentData() or "pygame")
+        engine = str(self.scenario_engine_combo.currentData() or "pyglet")
         if engine == "html":
             self.create_surface_viewpoint()
             return
 
-        if not self._check_pygame_available():
+        if not self._check_pyglet_available():
             QMessageBox.information(
                 self,
-                self.translator.t("pygame_missing_title"),
-                self.translator.t("pygame_missing_message"),
+                self.translator.t("pyglet_missing_title"),
+                self.translator.t("pyglet_missing_message"),
             )
-            self._set_status(self.translator.t("status_pygame_missing"))
+            self._set_status(self.translator.t("status_pyglet_missing"))
             return
 
         self.play_scenario_btn.setEnabled(False)
@@ -3348,7 +3470,7 @@ class MainWindow(QMainWindow):
             )
             viewpoint_label = self.translator.t("surface_viewpoint_neo" if viewpoint == "neo" else "surface_viewpoint_surface")
             summary = [
-                f"Playable Pygame scenario data: {scenario_path}",
+                f"Playable Pyglet/OpenGL scenario data: {scenario_path}",
                 "",
                 f"Viewpoint: {viewpoint_label}",
                 f"Time span: ±{span_hours:g} hours around modeled closest approach",
@@ -3357,7 +3479,7 @@ class MainWindow(QMainWindow):
                 "WASD move, mouse look, mouse wheel zoom, T telescope, Space pause, 1/2 or +/- time speed, F1 help, Esc quit.",
                 "",
                 "Scientific limitation:",
-                "This is a playful educational scene generated from the same synthetic CAD-derived flyby geometry as the local viewpoint plot. It is not a real landscape, visibility prediction, telescope simulation, observing plan, SPICE or Horizons ephemeris calculation.",
+                "This is a playful educational Pyglet/OpenGL scene generated from the same synthetic CAD-derived flyby geometry as the local viewpoint plot. It is not a real landscape, visibility prediction, telescope simulation, observing plan, SPICE or Horizons ephemeris calculation.",
             ]
             return str(scenario_path), "\n".join(summary)
 
@@ -3368,24 +3490,91 @@ class MainWindow(QMainWindow):
             scenario_path, summary = result  # type: ignore[misc]
             self.sim_text.setPlainText(summary)
             self._unload_ollama_before_interactive_scene()
-            self._set_status(self.translator.t("status_play_scenario_started"))
-            env = os.environ.copy()
-            src_path = str(self.root_dir / "src")
-            env["PYTHONPATH"] = src_path + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
-            try:
-                subprocess.Popen(
-                    [sys.executable, "-m", "jpl_cad_ollama_explorer.game_scenario", scenario_path],
-                    cwd=str(self.root_dir),
-                    env=env,
-                    creationflags=(subprocess.CREATE_NEW_CONSOLE if os.name == "nt" and hasattr(subprocess, "CREATE_NEW_CONSOLE") else 0),
-                )
-            except Exception as exc:
-                QMessageBox.warning(self, self.translator.t("play_scenario_failed_title"), f"{self.translator.t('play_scenario_failed_message')}\n\n{exc}")
+            self._launch_scenario_subprocess(str(scenario_path))
 
         worker.finished_ok.connect(done)
         worker.failed.connect(self._worker_failed)
         worker.finished.connect(lambda: self.play_scenario_btn.setEnabled(True))
         worker.start()
+
+    def _close_scenario_log_handle(self) -> None:
+        handle = getattr(self, "scenario_log_file_handle", None)
+        if handle is not None:
+            try:
+                handle.close()
+            except Exception:
+                pass
+        self.scenario_log_file_handle = None
+
+    def _launch_scenario_subprocess(self, scenario_path: str) -> None:
+        if self.scenario_process is not None and self.scenario_process.poll() is None:
+            QMessageBox.information(self, self.translator.t("play_scenario_running_title"), self.translator.t("play_scenario_running_message"))
+            return
+        env = os.environ.copy()
+        src_path = str(self.root_dir / "src")
+        env["PYTHONPATH"] = src_path + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+        self.log_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.scenario_log_path = self.log_dir / f"play_scenario_{stamp}.txt"
+        cmd = [sys.executable, "-m", "jpl_cad_ollama_explorer.game_scenario", scenario_path]
+        try:
+            self._close_scenario_log_handle()
+            self.scenario_log_file_handle = self.scenario_log_path.open("w", encoding="utf-8", errors="replace")
+            self.scenario_log_file_handle.write(f"Command: {' '.join(cmd)}\n")
+            self.scenario_log_file_handle.write(f"Working directory: {self.root_dir}\n")
+            self.scenario_log_file_handle.write(f"Scenario JSON: {scenario_path}\n\n")
+            self.scenario_log_file_handle.flush()
+            flags = 0
+            if os.name == "nt":
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            self.scenario_process = subprocess.Popen(
+                cmd,
+                cwd=str(self.root_dir),
+                env=env,
+                stdout=self.scenario_log_file_handle,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                creationflags=flags,
+            )
+            self._append_app_log("INFO", f"Started Play Scenario process pid={self.scenario_process.pid}; log={self.scenario_log_path}")
+            self._set_status(self.translator.t("status_play_scenario_started_logged").format(path=str(self.scenario_log_path)))
+            self.scenario_poll_timer.start()
+        except Exception as exc:
+            self._close_scenario_log_handle()
+            self.scenario_process = None
+            details = f"{self.translator.t('play_scenario_failed_message')}\n\n{exc}\n\n{traceback.format_exc()}"
+            log_path = self._write_error_log(details, "play_scenario_start_failed")
+            QMessageBox.warning(self, self.translator.t("play_scenario_failed_title"), f"{self.translator.t('play_scenario_failed_message')}\n\n{exc}\n\nLog: {log_path}")
+
+    def _poll_scenario_process(self) -> None:
+        process = self.scenario_process
+        if process is None:
+            self.scenario_poll_timer.stop()
+            self._close_scenario_log_handle()
+            return
+        code = process.poll()
+        if code is None:
+            return
+        self.scenario_poll_timer.stop()
+        self._close_scenario_log_handle()
+        path = self.scenario_log_path
+        if code == 0:
+            self._append_app_log("INFO", f"Play Scenario process exited normally. Log: {path}")
+            self._set_status(self.translator.t("status_play_scenario_finished"))
+        else:
+            tail = ""
+            if path and path.exists():
+                try:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                    tail = "\n".join(text.splitlines()[-80:])
+                except Exception as exc:
+                    tail = f"Could not read scenario log: {exc}"
+            message = self.translator.t("play_scenario_exited_message").format(code=code, path=str(path))
+            details = message + ("\n\nLast log lines:\n" + tail if tail else "")
+            self._append_app_log("ERROR", details)
+            self.tabs.setCurrentWidget(self.log_tab)
+            QMessageBox.warning(self, self.translator.t("play_scenario_failed_title"), details)
+        self.scenario_process = None
 
     def apply_selected_theme(self) -> None:
         theme_id = str(self.theme_combo.currentData() or "dark")

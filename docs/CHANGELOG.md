@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.1.44 - 2026-06-26
+
+- Play Scenario: Fixed the Pygame software renderer leaving stale backbuffer pixels below the sky area when the camera moved.
+- Play Scenario: Reduced the fixed foreground shadow overlay so it no longer looks like a non-perspective 2D panel.
+- Documentation: Updated README to version 0.1.44.
+
+## 0.1.43 - 2026-06-26
+
+- Play Scenario rendering: Reset OpenGL texture/blend/depth/cull state at frame boundaries so text/ground textures no longer bleed into the sky/background after mouse movement.
+- Play Scenario camera: Replaced rotation-order camera setup with an explicit look-matrix matching the WASD/target coordinate convention, so mouse pitch/yaw behave like a normal first-person view.
+- Play Scenario terrain: Rewound terrain quads to render as top-facing ground, enabled terrain-only back-face culling, and expanded the terrain draw radius to reduce underside/edge artifacts when looking steeply up or down.
+- Play Scenario sky: Made the horizon haze follow camera pitch instead of remaining fixed like a 2D wallpaper.
+- Documentation: Updated README to version 0.1.43.
+
+## 0.1.42 - 2026-06-25
+
+- Play Scenario robustness: Wrapped the Pyglet/OpenGL renderer so unhandled startup/render exceptions are printed to the Play Scenario log and then trigger the legacy software-rendered fallback instead of silently closing.
+- Play Scenario fallback: Added `pygame>=2.5,<3` to the standard requirements as a fallback renderer dependency while keeping Pyglet/OpenGL as the primary engine.
+- Log tab: Copy to Clipboard now copies the complete in-memory app session log, not only the currently visible text area, so it still works after Clear View.
+- Documentation: Updated README to version 0.1.42.
+
+## 0.1.41 - 2026-06-25
+
+- Play Scenario diagnostics: Launch the Pyglet/OpenGL scenario subprocess without a transient console window and capture stdout/stderr into `output/logs/play_scenario_*.txt`.
+- Play Scenario diagnostics: Poll the scenario subprocess and show non-zero exits in the new Log tab with the last log lines, so fullscreen startup failures are no longer lost.
+- Logging UI: Added a dedicated Log tab with Copy to Clipboard, Open Log Folder and Clear View buttons.
+- App diagnostics: Added session log files (`output/logs/app_session_*.txt`), central `_write_error_log` mirroring into the Log tab, and an uncaught-exception hook for GUI/runtime errors.
+- Documentation: Updated README to version 0.1.41.
+
+## 0.1.40 - 2026-06-25
+
+- Installer/uv fallback: Fixed a venv-loss regression introduced by the uv-created-venv repair path. If `uv venv` fails after removing `.venv`, the installer now immediately restores a normal `python -m venv` before falling back to pip.
+- Installer robustness: Added missing-interpreter checks before venv sanity probes and before final pip fallback, preventing raw `FileNotFoundError: [WinError 2]` tracebacks when `.venv\Scripts\python.exe` is absent.
+- Installer diagnostics: Missing executable cases now write `command_executable_not_found.log` / `venv_python_missing.log` instead of crashing without a targeted installer log.
+- Documentation: Updated README to version 0.1.40.
+
+## 0.1.39 - 2026-06-25
+
+- Play Scenario: Changed the primary fullscreen education mode from the legacy Pygame software renderer to a Pyglet/OpenGL first-person 3D scene.
+- Play Scenario: Added a real OpenGL camera with X/Y/Z world movement, mouse yaw/pitch looking, fullscreen controls, procedural terrain textures and generated low-poly world objects.
+- Play Scenario: Kept the old Pygame renderer only as a best-effort fallback if pyglet or OpenGL cannot initialize.
+- Installer/dependencies: Replaced the primary scenario dependency with `pyglet>=2.1,<3`; `pygame` remains only in optional requirements for the legacy fallback renderer.
+- Documentation: Updated README, usage notes and scientific limitations for the Pyglet/OpenGL scenario engine.
+
+## 0.1.38 - 2026-06-25
+
+- Pygame education mode: Replaced the earlier parallax-like scene impression with a lightweight software-projected X/Y/Z renderer. WASD now changes camera position through a generated world, and mouse look supports both yaw and pitch.
+- Pygame education mode: Added perspective-projected terrain tiles, low-poly tree/rock meshes, terrain height, depth sorting, open walking path logic and stronger 3D visual cues without external assets or OpenGL dependencies.
+- Installer/uv: Added a second repair strategy for uv-specific venv inspection failures. If `python -m venv` repair still cannot be inspected by uv, the installer now tries to recreate the project venv with `uv venv --python <base-python>` before falling back to pip.
+- Diagnostics: Added logs for the uv-created venv path (`uv_created_venv_attempt.log`, `uv_created_venv_failed.log`, `uv_created_venv_pip_bootstrap_failed.log`, and `uv_venv_probe_failed_after_python_repair.log`).
+- Documentation: Updated README to version 0.1.38.
+
+## 0.1.37 - 2026-06-25
+
+- Installer robustness: Added a uv recovery path for malformed or stale project-local virtual environments. If uv cannot inspect `.venv\Scripts\python.exe`, the installer now recreates the `.venv`, bootstraps pip/setuptools/wheel, re-validates uv, and retries before falling back to pip.
+- Installer robustness: Added a second uv dependency-install attempt after a best-effort `uv cache clean` when the first uv install attempt fails.
+- Logging: uv probe and repair attempts now write explicit logs (`uv_venv_repair_attempt.log`, `uv_venv_probe_failed_after_repair.log`, `uv_install_failed_first.log`, `uv_install_failed_second.log`) while preserving `uv_install_failed.log` as the latest uv failure pointer.
+- Documentation: Updated README to version 0.1.37 and documented the uv repair/retry behavior.
+
+## 0.1.36 - 2026-06-24
+
+- Startup fix: Restored the exported package metadata field `__app_name__`, fixing an ImportError that prevented the GUI from starting after the v0.1.35 installer completed.
+- Installer: Added a post-install smoke check for package metadata so this class of regression is caught before launching the app.
+- Installer/uv: Added an explicit uv compatibility probe for the project-local venv. If uv cannot inspect the venv Python on a specific Windows/Python setup, the installer now skips uv cleanly and falls back to venv pip without attempting the failing uv install step.
+- Installer/diagnostics: uv probe failures are written to `install_logs/uv_venv_probe_failed.log`; real uv install failures still use `install_logs/uv_install_failed.log`.
+- Documentation: Updated README to version 0.1.36.
+
+## 0.1.35 - 2026-06-24
+
+- Pygame education mode: Reworked the procedural scene renderer toward a stylized low-poly/cartoon-like look with layered terrain facets, decorative sky bodies, stronger depth cues and foreground shading.
+- Pygame Earth scene: Tuned the forest overlook toward a warmer, more readable stylized outdoor palette with low-poly trees, bushes and a visible path/clearing.
+- Pygame planet scenes: Added more distinctive stylized props for Mars-like mesas, Venus haze/fire strokes, icy Neptune-style shards and rocky/cratered surfaces.
+- Documentation: Updated README and scientific limitation notes to clarify that the fullscreen mode is a playful educational visualization with fully procedural original visuals, not an observation planner or real terrain renderer.
+
 ## 0.1.34 - 2026-06-24
 
 - 3D / Simulation: Added an optional scenario engine selector so **Play this scenario** can use either a fullscreen Pygame education mode or the lighter HTML/Plotly viewpoint fallback.

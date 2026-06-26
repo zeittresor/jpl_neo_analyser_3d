@@ -4,19 +4,13 @@ A local-first Python/PyQt6 desktop application for querying NASA/JPL SBDB Close 
 
 Original source / updates: `github.com/zeittresor`
 
-Version: `0.1.34`
+Version: `0.1.44`
 
 ## Purpose
 
 JPL CAD Ollama Explorer is intended as an accessible desktop front end for the NASA/JPL CAD API. It helps users inspect close-approach records, convert key values into practical units, create local visualizations, and ask a locally running Ollama model for an explanatory assessment of the selected record.
 
 The application is designed for educational, exploratory, and technical analysis workflows. It is not an official NASA/JPL tool and must not be used as an authoritative impact-risk predictor.
-
-<img width="2560" height="1039" alt="001" src="https://github.com/user-attachments/assets/14427afe-738d-4e73-b7c4-3473ad0d04ce" />
-
-<img width="2560" height="1041" alt="002" src="https://github.com/user-attachments/assets/755c68ab-cd4a-4611-83c5-9026bc5fafc7" />
-
-<img width="1507" height="675" alt="3d" src="https://github.com/user-attachments/assets/fc2c2b96-55cb-432e-b325-50d8ba54b01d" />
 
 ## Main features
 
@@ -29,11 +23,19 @@ The application is designed for educational, exploratory, and technical analysis
 - Show the close-approach countdown directly in the table and in the selected-record detail panel.
 - Show additional compact columns for current-encounter scoring, local impact-probability/proxy values when the available interval actually overlaps the target-body radius, approximate energy context, and rough spacecraft/probe context.
 - Load the last successful CAD result from a local cache on startup, automatically create an initial cache snapshot on first launch when no cache exists, and fall back to cache if a live CAD request fails later.
+- Write configuration and CAD cache files atomically where possible, keeping a backup of the previous CAD cache to reduce the chance of losing the last usable dataset after an interrupted write.
 - Compare newly fetched CAD records with the previous cached fetch and show whether selected values are new, unchanged, or changed.
 - Perform a lightweight public-NTP time/network check and pass that time/connectivity context to Ollama prompts.
 - Show explicit selected-record detail fields with clear “not available” text when a CAD response does not provide a value.
+- Run a built-in app self-check that validates key files, localized strings, themes, spacecraft/probe catalog data, writable output folders, selected Ollama model state, and loaded CAD records.
 - Show local non-official triage labels such as `Routine`, `Nearby`, `Close`, or `Very close`.
 - Open a selected record in a local Plotly/WebGL HTML visualization with optional procedural textures for the target body and a visually enlarged flyby object.
+- Open an additional local surface/flyby viewpoint HTML view, showing an idealized sky path from the target-body surface sub-approach point or the target body as seen from the flyby object around closest approach.
+- Launch an optional fullscreen Pyglet/OpenGL 3D education mode from **Play this scenario**, with WASD/mouse movement, true mouse-look pitch/yaw, telescope/zoom controls, a target marker in the sky, generated low-poly 3D objects, and procedural planet-like terrain textures.
+- Use a dedicated Log tab with a Copy to Clipboard button, Open Log Folder button, and automatic session/error logging for app diagnostics and subprocess failures.
+- Capture Play Scenario stdout/stderr into timestamped log files instead of launching a transient console window, then surface non-zero exits in the Log tab.
+- Fall back to the bundled software-rendered scenario mode if the Pyglet/OpenGL renderer fails during startup/rendering, while preserving the failure details in logs.
+- Choose between the Pyglet/OpenGL fullscreen scenario engine and the lighter HTML/Plotly viewpoint fallback.
 - Run a simplified local what-if simulation comparing straight-line geometry, central-body gravity, and approximate Sun/major-planet tidal terms.
 - Request a local Ollama analysis for the selected record on demand, including optional change-comparison context from the previous cached CAD fetch.
 - Include an additional short article-style prose section in Ollama analyses, with accessible comparisons and calm scientific context before the more technical assessment.
@@ -42,10 +44,12 @@ The application is designed for educational, exploratory, and technical analysis
 - Show a simple localized Ollama-unavailable dialog if the local Ollama service is not running, with options to start a found local Ollama executable, retry, or open the Ollama download page.
 - Ask follow-up questions to Ollama using the selected CAD record and previous analysis as context.
 - Let Ollama propose corrections for app-derived table fields, show whether suggestions are pending or absent, then apply those corrections manually with an explicit review button.
+- Parse both current plain-text and older legacy machine-readable Ollama correction blocks, making local-model formatting drift less likely to break correction review.
 - View Ollama responses in a formatted Markdown-like analysis pane with headings, emphasis, lists, and code blocks.
 - Copy or print the formatted analysis output.
 - Export the visible table as CSV.
 - Add local spacecraft/probe context using an approximate editable catalog of artificial-object regions beyond Earth orbit, including cislunar, Lagrange-distance and selected planet-orbiter shells.
+- Edit the optional spacecraft/probe region catalog directly in the GUI using the Spacecraft Catalog tab, then save/reload the JSON catalog without leaving the app.
 - Optionally read the latest answer or the full visible analysis aloud using Windows text-to-speech with Markdown formatting markers removed from spoken output.
 - Use a localized Usage Notes tab for explanations of compact table values such as local impact-probability/proxy logic, derived scientific context fields, local risk scoring, satellite context, NTP time/network status, and LLM interpretation modes.
 - Optionally suppress repeated educational/scientific limitation notes in Ollama responses and generated 3D HTML output.
@@ -53,17 +57,21 @@ The application is designed for educational, exploratory, and technical analysis
 - Choose whether local-computed/heuristic notes are explicitly shown or kept terse.
 - Start maximized by default and use Ocean as the default theme on a fresh configuration.
 - Switch between English, German, French, and Russian UI language files.
-- Switch between bundled themes: Light, Dark, Sepia, Ocean, Matrix, Hellfire, Purple, and Aurora.
+- Switch between bundled themes: Light, Dark, Sepia, Ocean, Matrix, Hellfire, Purple, and Aurora. Aurora includes teal/violet polar-light accents; Hellfire is the standard fire/dark-red theme name.
 - Choose flat colors, simple procedural textures, or enhanced procedural textures for generated 3D scenes.
 - Use localized tooltips for the main controls and actions.
 - Install into a project-local `.venv` while using a shared depot/cache path for reusable caches and optional managed tools.
 - Use timeout-based installer defaults for the suggested PythonDepot path and optional wheelhouse build, while still allowing the user to override or skip them.
+- Run a minimal post-install smoke check so package metadata regressions are caught before the application is launched.
+- Treat uv strictly as an optional accelerator; if uv cannot inspect a local venv on a particular Windows/Python installation, the installer now tries to repair/recreate the venv and retry uv before using the reliable venv-pip fallback.
 
 ## Scientific limitation
 
 The JPL CAD API provides close-approach summary records. It does not provide the full state vector, full covariance, observational arc, full orbit solution, or official impact-probability analysis needed for authoritative orbit propagation.
 
 The local score/proxy fields and simulation module are derived context, not official NASA/JPL risk products. The simulation module is an educational approximation. It starts from CAD-style miss distance and relative velocity data and constructs a simplified target-centered flyby. This can help illustrate scale, speed, timing, uncertainty ranges, and rough perturbation sensitivity, but it is not equivalent to JPL Horizons, SPICE, Sentry, or a professional orbit-determination pipeline.
+
+The surface/flyby viewpoint view and the optional Pyglet/OpenGL scenario mode are also derived from this synthetic trajectory. They do not compute a true geographic observing site, sky brightness, atmosphere, body rotation, apparent magnitude, camera pointing, real terrain, real sounds, or real ephemerides. The Pyglet/OpenGL mode is an educational/immersive 3D visualization gimmick with stylized low-poly procedural scenery and generated textures, not an observing simulator.
 
 For authoritative risk assessment, compare against official NASA/JPL/CNEOS resources, JPL Horizons/SPICE data, Minor Planet Center observations, and the newest published orbit updates.
 
@@ -74,7 +82,7 @@ For authoritative risk assessment, compare against official NASA/JPL/CNEOS resou
 - Internet access for live CAD queries and first-time dependency installation
 - Local Ollama installation only if local AI explanations are desired
 
-Python dependencies are listed in `requirements.txt`.
+Python dependencies are listed in `requirements.txt`. Pyglet is included for the optional fullscreen OpenGL education/scenario mode; the scientific CAD table and HTML visualizations remain usable without launching that mode.
 
 ## Windows quick start
 
@@ -107,7 +115,7 @@ D:\PythonDepot\
   wheelhouse\
 ```
 
-The installer tries to prepare a depot-managed `uv` installation in `tools\uv_venv\` and prefers that managed tool over a random globally installed `uv`. If `uv` is unavailable or fails, setup logs the issue and falls back to `.venv\Scripts\python.exe -m pip`.
+The installer tries to prepare a depot-managed `uv` installation in `tools\uv_venv\` and prefers that managed tool over a random globally installed `uv`. If `uv` cannot inspect the project venv, setup recreates the venv and retries uv once. If a uv install attempt itself fails, setup clears the uv cache and retries once. Only after those repair/retry steps does it fall back to `.venv\Scripts\python.exe -m pip`.
 
 Useful environment switches:
 
@@ -234,8 +242,19 @@ output/
 
 ## License
 
-MIT license
+No license file is included in this package. Add a license before public redistribution if required.
 
 ## Local spacecraft/probe context catalog
 
 `data/spacecraft_regions.json` contains an editable approximate radial catalog of artificial-object regions. The catalog is used for the app-derived Spacecraft context column. It is not a live ephemeris/TLE/SPICE database and should be treated as screening context only.
+
+If the local catalog is missing or partially malformed, the application skips invalid entries where possible, reports catalog warnings in the built-in self-check, and falls back to built-in default screening regions if no usable local entries remain.
+
+## Diagnostics and self-check
+
+Use **Options → Run app self-check** to verify key project files, language/theme consistency, spacecraft/probe catalog health, writable output folders, selected Ollama model state, and loaded CAD records. The self-check writes a diagnostic report to `output/logs/` and shows the same report in a scrollable dialog.
+
+
+### Installer robustness notes
+
+The Windows installer prefers the depot-managed `uv` accelerator, but treats it as an optimization rather than a hard requirement. If `uv` cannot inspect the project-local virtual environment, the installer now recreates the `.venv`, bootstraps pip again, retries `uv`, clears the uv cache on one failed uv install attempt, retries once more, and only then falls back to plain `.venv` pip. This is intended to recover from stale or malformed virtual environments such as broken `pyvenv.cfg`/prefix state or missing standard-library imports like `encodings`.
