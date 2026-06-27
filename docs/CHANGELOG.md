@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.1.50 - 2026-06-27
+
+- Play Scenario sky/terrain: Replaced the old translucent vertical sky cards with one continuous camera-centred sky dome, removing cube-map-like seams and preventing sky overlays from hiding the ground.
+- Play Scenario movement: Added simple player collision volumes for trees/rocks and terrain-following standing camera height with a Space-key jump arc. Pause moved to P.
+- Play Scenario target UX: Made the target marker larger/brighter with a beacon/halo and added C to toggle target tracking/centering.
+- Play Scenario journal: Added J to toggle a field-pack/journal overlay listing the telescope, binocular-style zoom, target tracker and field manual controls.
+- Play Scenario diagnostics: Logs now include sky-dome, collision-volume, target-beacon, jump, journal and tracking state changes.
+- Documentation: Updated README/version metadata to version 0.1.50.
+
+## 0.1.49 - 2026-06-27
+
+- Fixed Play Scenario startup regression in v0.1.48: Panda3D lens access now uses the actual Camera node (`base.cam`/`base.camLens`) instead of the movable camera transform node (`base.camera`), avoiding `AttributeError: ModelNode has no getLens`.
+- Kept first-person body cues view-attached by parenting them to the real camera node.
+- Documentation: Updated README/version metadata to version 0.1.49.
+
+## 0.1.48 - 2026-06-27
+
+- Play Scenario camera: Changed Panda3D startup to fullscreen by default and moved the player camera to a realistic standing eye height of about 1.80 m above the procedural terrain.
+- Play Scenario grounding: Added first-person body cues with simple boots/hands attached to the camera view so the mode no longer feels like a floor-level floating camera when looking down.
+- Play Scenario audio: Added generated looping ambient WAV audio matched to the current terrain type, with persistent generation/reuse logs under `output/audio/`.
+- Play Scenario screenshots: Added Home/Pos1 screenshot capture, saved to `output/screenshots/`, with success/failure entries in the scenario log.
+- Play Scenario diagnostics: Added explicit logs for fullscreen startup, eye height, near clipping, audio setup and screenshot output locations.
+- Documentation: Updated README/version metadata to version 0.1.48.
+
+## 0.1.47 - 2026-06-27
+
+- Fixed Panda3D Play Scenario startup crash caused by passing RGBA values to `Fog.setColor()` on Panda3D builds that only accept RGB floats for fog color.
+- Added an explicit Panda3D lighting/fog setup log line so renderer startup progress is easier to localize in the Log tab and persistent play-scenario log.
+- Documentation: Updated README/version metadata to version 0.1.47.
+
+## 0.1.46 - 2026-06-27
+
+- Play Scenario engine: Replaced the experimental Pyglet/Pygame renderer split with a single Panda3D native 3D engine.
+- Play Scenario performance: Auto mode now starts Panda3D first and logs the actual graphics backend/vendor/renderer/version and shader support reported by Panda3D.
+- Play Scenario options: Simplified engine choices to Auto/Panda3D and WebGL/HTML, and changed render-device choices to Panda3D backends such as OpenGL hardware, DirectX 9 when available, vendor-preferred GPU modes, or Panda3D software rendering for diagnostics.
+- Play Scenario shaders: The shader cache now creates reusable Panda3D GLSL source files and binds them to the generated low-poly scene geometry when supported.
+- Dependencies: Removed pyglet and pygame from the standard requirements and added panda3d as the native scenario dependency.
+- Documentation: Updated README and scientific limitations to version 0.1.46.
 ## 0.1.45 - 2026-06-26
 
 - Play Scenario diagnostics: Renderer selection is now logged explicitly, including requested engine, requested render device, shader cache mode, active OpenGL vendor/renderer/version and exact fallback reason; the GUI Log tab summarizes these renderer diagnostics after the scenario process exits.

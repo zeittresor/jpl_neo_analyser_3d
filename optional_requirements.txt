@@ -1,5 +1,2 @@
-# Optional / separately installable education-game dependency.
-# It is also included in requirements.txt for the standard installer.
-pyglet>=2.1,<3
-# Legacy fallback renderer only; not used as the primary scenario engine.
-pygame>=2.5,<3
+# Optional extras for future feature expansion. The standard Play Scenario engine is Panda3D
+# and is installed through requirements.txt.

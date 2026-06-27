@@ -4,19 +4,13 @@ A local-first Python/PyQt6 desktop application for querying NASA/JPL SBDB Close 
 
 Original source / updates: `github.com/zeittresor`
 
-Version: `0.1.45`
+Version: `0.1.50`
 
 ## Purpose
 
 JPL CAD Ollama Explorer is intended as an accessible desktop front end for the NASA/JPL CAD API. It helps users inspect close-approach records, convert key values into practical units, create local visualizations, and ask a locally running Ollama model for an explanatory assessment of the selected record.
 
 The application is designed for educational, exploratory, and technical analysis workflows. It is not an official NASA/JPL tool and must not be used as an authoritative impact-risk predictor.
-
-<img width="2560" height="1039" alt="001" src="https://github.com/user-attachments/assets/14427afe-738d-4e73-b7c4-3473ad0d04ce" />
-
-<img width="2560" height="1041" alt="002" src="https://github.com/user-attachments/assets/755c68ab-cd4a-4611-83c5-9026bc5fafc7" />
-
-<img width="1507" height="675" alt="3d" src="https://github.com/user-attachments/assets/fc2c2b96-55cb-432e-b325-50d8ba54b01d" />
 
 ## Main features
 
@@ -37,13 +31,15 @@ The application is designed for educational, exploratory, and technical analysis
 - Show local non-official triage labels such as `Routine`, `Nearby`, `Close`, or `Very close`.
 - Open a selected record in a local Plotly/WebGL HTML visualization with optional procedural textures for the target body and a visually enlarged flyby object.
 - Open an additional local surface/flyby viewpoint HTML view, showing an idealized sky path from the target-body surface sub-approach point or the target body as seen from the flyby object around closest approach.
-- Launch an optional fullscreen Pyglet/OpenGL 3D education mode from **Play this scenario**, with WASD/mouse movement, true mouse-look pitch/yaw, telescope/zoom controls, a target marker in the sky, generated low-poly 3D objects, and procedural planet-like terrain textures.
+- Launch an optional Panda3D-powered 3D education mode from **Play this scenario**, with fullscreen-by-default startup, WASD/mouse movement, true mouse-look pitch/yaw, terrain-following standing eye height, Space jump, simple prop collision, telescope/zoom controls, C target tracking, J journal overlay, Home/Pos1 screenshots, a brighter target beacon, generated low-poly 3D objects, procedural terrain and GPU-backed rendering when the system provides it.
 - Use a dedicated Log tab with a Copy to Clipboard button, Open Log Folder button, and automatic session/error logging for app diagnostics and subprocess failures.
 - Capture Play Scenario stdout/stderr into timestamped log files instead of launching a transient console window, then surface non-zero exits in the Log tab.
-- In Auto mode, fall back to the bundled software-rendered scenario mode if the Pyglet/OpenGL renderer fails during startup/rendering, while preserving the failure details and exact fallback reason in logs.
-- Choose the Play Scenario engine in Options: Auto best available, forced Pyglet/OpenGL for debugging, Pygame/software rendering, or WebGL/HTML viewpoint.
-- Choose a Play Scenario render-device preference such as auto, hardware GPU/OpenGL, NVIDIA, Radeon/AMD, Intel, or CPU/software; the scenario log records the actual OpenGL vendor and renderer reported by the driver.
-- Prepare and reuse a versioned shader-cache location for the current diagnostics and future shader-based renderer path.
+- Use Panda3D as the single native Play Scenario engine instead of maintaining separate experimental renderer paths. Auto mode prefers Panda3D hardware rendering, while the render-device option can request OpenGL, DirectX 9 where available, vendor-preferred GPU modes, or Panda3D software rendering for diagnostics.
+- Choose the Play Scenario engine in Options: Auto/Panda3D best available, forced Panda3D, or WebGL/HTML viewpoint.
+- Record the actual Panda3D graphics vendor, renderer, driver version, shader support and selected backend in the scenario log.
+- Prepare, reuse and bind versioned Panda3D GLSL shader source files for the low-poly scenario geometry when the active backend supports them.
+- Play matching procedural ambient scene audio in Panda3D scenario mode when Panda3D/audio output is available.
+- Save Play Scenario screenshots from the Home/Pos1 key to `output/screenshots/`.
 - Run a simplified local what-if simulation comparing straight-line geometry, central-body gravity, and approximate Sun/major-planet tidal terms.
 - Request a local Ollama analysis for the selected record on demand, including optional change-comparison context from the previous cached CAD fetch.
 - Include an additional short article-style prose section in Ollama analyses, with accessible comparisons and calm scientific context before the more technical assessment.
@@ -79,7 +75,7 @@ The JPL CAD API provides close-approach summary records. It does not provide the
 
 The local score/proxy fields and simulation module are derived context, not official NASA/JPL risk products. The simulation module is an educational approximation. It starts from CAD-style miss distance and relative velocity data and constructs a simplified target-centered flyby. This can help illustrate scale, speed, timing, uncertainty ranges, and rough perturbation sensitivity, but it is not equivalent to JPL Horizons, SPICE, Sentry, or a professional orbit-determination pipeline.
 
-The surface/flyby viewpoint view and the optional Pyglet/OpenGL scenario mode are also derived from this synthetic trajectory. They do not compute a true geographic observing site, sky brightness, atmosphere, body rotation, apparent magnitude, camera pointing, real terrain, real sounds, or real ephemerides. The Pyglet/OpenGL mode is an educational/immersive 3D visualization gimmick with stylized low-poly procedural scenery and generated textures, not an observing simulator.
+The surface/flyby viewpoint view and the optional Panda3D scenario mode are also derived from this synthetic trajectory. They do not compute a true geographic observing site, sky brightness, atmosphere, body rotation, apparent magnitude, camera pointing, real terrain, real sounds, or real ephemerides. The Panda3D mode is an educational/immersive 3D visualization with stylized low-poly procedural scenery and generated shader-driven geometry, not an observing simulator.
 
 For authoritative risk assessment, compare against official NASA/JPL/CNEOS resources, JPL Horizons/SPICE data, Minor Planet Center observations, and the newest published orbit updates.
 
@@ -90,7 +86,7 @@ For authoritative risk assessment, compare against official NASA/JPL/CNEOS resou
 - Internet access for live CAD queries and first-time dependency installation
 - Local Ollama installation only if local AI explanations are desired
 
-Python dependencies are listed in `requirements.txt`. Pyglet is included for the optional fullscreen OpenGL education/scenario mode, and pygame is included as the software-rendered fallback. The scientific CAD table and HTML visualizations remain usable without launching that mode.
+Python dependencies are listed in `requirements.txt`. Panda3D is included for the optional native 3D education/scenario mode. The scientific CAD table and HTML visualizations remain usable without launching that mode.
 
 ## Windows quick start
 

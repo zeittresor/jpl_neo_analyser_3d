@@ -708,18 +708,18 @@ class MainWindow(QMainWindow):
 
 
     def _populate_scenario_engine_combo(self, combo: QComboBox) -> None:
-        combo.addItem("Auto - best available", "auto")
-        combo.addItem("Pyglet/OpenGL 3D scene", "pyglet")
-        combo.addItem("Pygame/software renderer", "pygame")
+        combo.addItem("Auto - Panda3D best available", "auto")
+        combo.addItem("Panda3D hardware 3D scene", "panda3d")
         combo.addItem("WebGL/HTML viewpoint", "html")
 
     def _populate_render_device_combo(self, combo: QComboBox) -> None:
-        combo.addItem("Auto - best hardware available", "auto")
-        combo.addItem("Prefer hardware GPU/OpenGL", "gpu")
+        combo.addItem("Auto - best Panda3D backend", "auto")
+        combo.addItem("Hardware GPU / OpenGL", "opengl")
+        combo.addItem("DirectX 9 if available", "directx")
         combo.addItem("Prefer NVIDIA GPU", "nvidia")
         combo.addItem("Prefer Radeon/AMD GPU", "radeon")
         combo.addItem("Prefer Intel GPU", "intel")
-        combo.addItem("CPU / software rendering", "software")
+        combo.addItem("CPU / Panda3D software renderer", "software")
 
     def _populate_shader_cache_combo(self, combo: QComboBox) -> None:
         combo.addItem("Auto", "auto")
@@ -1124,7 +1124,7 @@ class MainWindow(QMainWindow):
         self.open_3d_btn.clicked.connect(lambda: self.create_visualization(open_after=True))
         self.save_3d_btn.clicked.connect(lambda: self.create_visualization(open_after=False))
         self.surface_view_btn.clicked.connect(self.create_surface_viewpoint)
-        self.play_scenario_btn.clicked.connect(self.play_pygame_scenario)
+        self.play_scenario_btn.clicked.connect(self.play_scenario)
         self.scenario_engine_combo.currentIndexChanged.connect(lambda _idx: self._sync_scenario_engine_controls("sim"))
         self.scenario_engine_options_combo.currentIndexChanged.connect(lambda _idx: self._sync_scenario_engine_controls("options"))
         self.catalog_add_btn.clicked.connect(self.add_catalog_region)
@@ -1187,11 +1187,11 @@ class MainWindow(QMainWindow):
         self._set_combo_item_text_by_data(self.surface_viewpoint_combo, "neo", t("surface_viewpoint_neo"))
         for combo in (self.scenario_engine_combo, self.scenario_engine_options_combo):
             self._set_combo_item_text_by_data(combo, "auto", t("scenario_engine_auto"))
-            self._set_combo_item_text_by_data(combo, "pyglet", t("scenario_engine_pyglet"))
-            self._set_combo_item_text_by_data(combo, "pygame", t("scenario_engine_pygame"))
+            self._set_combo_item_text_by_data(combo, "panda3d", t("scenario_engine_panda3d"))
             self._set_combo_item_text_by_data(combo, "html", t("scenario_engine_html"))
         self._set_combo_item_text_by_data(self.render_device_combo, "auto", t("render_device_auto"))
-        self._set_combo_item_text_by_data(self.render_device_combo, "gpu", t("render_device_gpu"))
+        self._set_combo_item_text_by_data(self.render_device_combo, "opengl", t("render_device_opengl"))
+        self._set_combo_item_text_by_data(self.render_device_combo, "directx", t("render_device_directx"))
         self._set_combo_item_text_by_data(self.render_device_combo, "nvidia", t("render_device_nvidia"))
         self._set_combo_item_text_by_data(self.render_device_combo, "radeon", t("render_device_radeon"))
         self._set_combo_item_text_by_data(self.render_device_combo, "intel", t("render_device_intel"))
@@ -1808,12 +1808,12 @@ class MainWindow(QMainWindow):
             warn("Selected Ollama model field is empty; analysis requests will be blocked until a model is selected.")
         try:
             import importlib.util
-            if importlib.util.find_spec("pyglet") is not None:
-                ok("Optional Pyglet/OpenGL scenario mode is available.")
+            if importlib.util.find_spec("panda3d") is not None:
+                ok("Panda3D scenario mode is available.")
             else:
-                warn("Optional Pyglet/OpenGL scenario mode is not installed; Play this scenario will show install guidance.")
+                warn("Panda3D is not installed; Play this scenario cannot start until install_windows.bat installs panda3d.")
         except Exception as exc:
-            warn(f"Optional Pyglet/OpenGL scenario mode check failed: {exc}")
+            warn(f"Panda3D scenario mode check failed: {exc}")
 
         if self.records:
             ok(f"CAD records currently loaded: {len(self.records)}")
@@ -2546,11 +2546,15 @@ class MainWindow(QMainWindow):
             scenario_engine = str(data.get("scenario_engine", "auto") or "auto")
             if scenario_engine == "webgl":
                 scenario_engine = "html"
+            if scenario_engine in {"opengl", "software"}:
+                scenario_engine = "auto"
             seidx = self.scenario_engine_combo.findData(scenario_engine)
             if seidx >= 0:
                 self.scenario_engine_combo.setCurrentIndex(seidx)
             self._set_combo_current_data(self.scenario_engine_options_combo, scenario_engine)
             render_device = str(data.get("scenario_render_device", "auto") or "auto")
+            if render_device == "gpu":
+                render_device = "opengl"
             self._set_combo_current_data(self.render_device_combo, render_device)
             shader_cache = str(data.get("scenario_shader_cache", "auto") or "auto")
             self._set_combo_current_data(self.shader_cache_combo, shader_cache)
@@ -3485,18 +3489,18 @@ class MainWindow(QMainWindow):
             OllamaClient(self.ollama_url_edit.text().strip(), timeout_seconds=8).unload_model(model)
         except Exception as exc:
             # Launch the educational view anyway; this is a best-effort memory release.
-            log_path = self._write_error_log(f"Could not unload Ollama before Pyglet/OpenGL scene: {exc}", "ollama_scene_unload")
+            log_path = self._write_error_log(f"Could not unload Ollama before Panda3D scene: {exc}", "ollama_scene_unload")
             self._set_status(self.translator.t("status_unload_ollama_for_scene_failed").format(path=str(log_path)))
 
 
-    def _check_pyglet_available(self) -> bool:
+    def _check_panda3d_available(self) -> bool:
         try:
             import importlib.util
-            return importlib.util.find_spec("pyglet") is not None
+            return importlib.util.find_spec("panda3d") is not None
         except Exception:
             return False
 
-    def play_pygame_scenario(self) -> None:
+    def play_scenario(self) -> None:
         record = self.selected_record()
         if not record:
             QMessageBox.information(self, self.translator.t("no_selection_title"), self.translator.t("no_selection_message"))
@@ -3507,6 +3511,11 @@ class MainWindow(QMainWindow):
         if engine in {"html", "webgl"}:
             self._append_app_log("INFO", "Play Scenario requested HTML/WebGL viewpoint mode; opening browser-based viewpoint instead of fullscreen subprocess.")
             self.create_surface_viewpoint()
+            return
+        if not self._check_panda3d_available():
+            QMessageBox.warning(self, self.translator.t("panda3d_missing_title"), self.translator.t("panda3d_missing_message"))
+            self._append_app_log("ERROR", self.translator.t("status_panda3d_missing"))
+            self._set_status(self.translator.t("status_panda3d_missing"))
             return
 
         self.play_scenario_btn.setEnabled(False)
@@ -3547,10 +3556,10 @@ class MainWindow(QMainWindow):
                 f"Time span: ±{span_hours:g} hours around modeled closest approach",
                 "",
                 "Controls:",
-                "WASD move, mouse look, mouse wheel zoom, T telescope, Space pause, 1/2 or +/- time speed, F1 help, Esc quit.",
+                "WASD move, mouse look, mouse wheel zoom, Space jump, C target tracking, J journal, T telescope, P pause, 1/2 or +/- time speed, Home/Pos1 screenshot, F11 fullscreen/window, Esc quit.",
                 "",
                 "Scientific limitation:",
-                "This is a playful educational renderer generated from the same synthetic CAD-derived flyby geometry as the local viewpoint plot. Auto mode tries the best available Pyglet/OpenGL hardware path first and logs any fallback to pygame/software. It is not a real landscape, visibility prediction, telescope simulation, observing plan, SPICE or Horizons ephemeris calculation.",
+                "This is a playful educational renderer generated from the same synthetic CAD-derived flyby geometry as the local viewpoint plot. Auto mode uses Panda3D and selects the best available backend. Hardware OpenGL is preferred; DirectX/TinyPanda software can be selected for diagnostics where available. It is not a real landscape, visibility prediction, telescope simulation, observing plan, SPICE or Horizons ephemeris calculation.",
             ]
             return str(scenario_path), "\n".join(summary)
 
@@ -3649,17 +3658,17 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             return f"Could not read scenario log summary: {exc}"
         keywords = (
+            "ENGINE_REQUEST",
             "ENGINE_SELECTED",
-            "OpenGL context",
-            "Pyglet/OpenGL failed",
-            "Falling back",
-            "Fallback renderer",
-            "Requested GPU",
-            "Could not create",
-            "import error",
+            "Panda3D configuration",
+            "Panda3D GSG",
+            "Panda3D failed",
             "Shader cache",
+            "Shader loaded",
+            "Renderer warm-up",
             "vendor=",
             "renderer=",
+            "render_device=",
             "WARN",
             "ERROR",
         )
