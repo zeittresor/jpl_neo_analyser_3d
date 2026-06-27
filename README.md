@@ -12,7 +12,7 @@ JPL CAD Ollama Explorer is intended as an accessible desktop front end for the N
 
 The application is designed for educational, exploratory, and technical analysis workflows. It is not an official NASA/JPL tool and must not be used as an authoritative impact-risk predictor.
 
-You can also "play" any scenario "like a game" :-) ..(WSAD / Mouse control, Space jumping, j journal, p pause, home/pos1 screenshot, t telescope to focus the object, c centered object view, f11 switch between fullscreen/window mode..)
+You can also "play" any scenario "like a game" :-) ..(WSAD / Mouse control, Space jumping, j journal, p pause, home/pos1 screenshot, t telescope to focus the object, c centered object view, f11 switch between fullscreen/window mode.. in 3d / Simulation Tab)
 
 
 <img width="2560" height="1039" alt="001" src="https://github.com/user-attachments/assets/14427afe-738d-4e73-b7c4-3473ad0d04ce" />
