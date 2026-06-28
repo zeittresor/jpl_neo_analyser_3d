@@ -6,6 +6,9 @@ Original source / updates: `github.com/zeittresor`
 
 Version: `0.1.50`
 
+Changelog: https://github.com/zeittresor/jpl_neo_analyser_3d/blob/main/docs/CHANGELOG.md
+
+
 ## Purpose
 
 JPL CAD Ollama Explorer is intended as an accessible desktop front end for the NASA/JPL CAD API. It helps users inspect close-approach records, convert key values into practical units, create local visualizations, and ask a locally running Ollama model for an explanatory assessment of the selected record.
